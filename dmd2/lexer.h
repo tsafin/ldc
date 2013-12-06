@@ -126,7 +126,7 @@ enum TOK
         TOKfloat32, TOKfloat64, TOKfloat80,
         TOKimaginary32, TOKimaginary64, TOKimaginary80,
         TOKcomplex32, TOKcomplex64, TOKcomplex80,
-        TOKchar, TOKwchar, TOKdchar, TOKbit, TOKbool,
+        TOKchar, TOKwchar, TOKdchar, TOKbool,
 
 // 152
         // Aggregates
@@ -157,7 +157,7 @@ enum TOK
         TOKargTypes,
         TOKref,
         TOKmacro,
-#if DMDV2
+
         TOKparameters,
         TOKtraits,
         TOKoverloadset,
@@ -176,7 +176,6 @@ enum TOK
         TOKgoesto,
         TOKvector,
         TOKpound,
-#endif
 
 // LDC specific
 #if IN_LLVM
@@ -190,7 +189,7 @@ enum TOK
 
 #define BASIC_TYPES                     \
         TOKwchar: case TOKdchar:                \
-        case TOKbit: case TOKbool: case TOKchar:        \
+        case TOKbool: case TOKchar:             \
         case TOKint8: case TOKuns8:             \
         case TOKint16: case TOKuns16:           \
         case TOKint32: case TOKuns32:           \
@@ -232,10 +231,10 @@ struct Token
 {
     Token *next;
     Loc loc;
-    utf8_t *ptr;         // pointer to first character of this token within buffer
+    const utf8_t *ptr;         // pointer to first character of this token within buffer
     TOK value;
-    utf8_t *blockComment; // doc comment string prior to this token
-    utf8_t *lineComment;  // doc comment for previous token
+    const utf8_t *blockComment; // doc comment string prior to this token
+    const utf8_t *lineComment;  // doc comment for previous token
     union
     {
         // Integers
@@ -277,9 +276,9 @@ public:
 
     Loc scanloc;                // for error messages
 
-    utf8_t *base;        // pointer to start of buffer
-    utf8_t *end;         // past end of buffer
-    utf8_t *p;           // current character
+    const utf8_t *base;        // pointer to start of buffer
+    const utf8_t *end;         // past end of buffer
+    const utf8_t *p;           // current character
     Token token;
     Module *mod;
     int doDocComment;           // collect doc comment information
@@ -287,7 +286,7 @@ public:
     int commentToken;           // !=0 means comments are TOKcomment's
 
     Lexer(Module *mod,
-        utf8_t *base, size_t begoffset, size_t endoffset,
+        const utf8_t *base, size_t begoffset, size_t endoffset,
         int doDocComment, int commentToken);
 
     static void initKeywords();
@@ -304,10 +303,8 @@ public:
     unsigned escapeSequence();
     TOK wysiwygStringConstant(Token *t, int tc);
     TOK hexStringConstant(Token *t);
-#if DMDV2
     TOK delimitedStringConstant(Token *t);
     TOK tokenStringConstant(Token *t);
-#endif
     TOK escapeStringConstant(Token *t, int wide);
     TOK charConstant(Token *t, int wide);
     void stringPostfix(Token *t);
@@ -320,8 +317,8 @@ public:
     unsigned decodeUTF();
     void getDocComment(Token *t, unsigned lineComment);
 
-    static int isValidIdentifier(char *p);
-    static utf8_t *combineComments(utf8_t *c1, utf8_t *c2);
+    static int isValidIdentifier(const char *p);
+    static const utf8_t *combineComments(const utf8_t *c1, const utf8_t *c2);
 };
 
 #endif /* DMD_LEXER_H */

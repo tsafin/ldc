@@ -13,11 +13,6 @@
 #include <ctype.h>
 #include <assert.h>
 #include <string.h>                     // memset()
-#if _MSC_VER || IN_LLVM // complex.h breaks LLVM headers.
-#include <complex>
-#else
-#include <complex.h>
-#endif
 
 #ifdef __APPLE__
 #define integer_t dmd_integer_t
@@ -50,7 +45,7 @@ static int inferApplyArgTypesY(TypeFunction *tf, Parameters *arguments, int flag
 
 int Expression::isCommutative()
 {
-    return FALSE;       // default is no reverse
+    return false;       // default is no reverse
 }
 
 /***********************************
@@ -90,14 +85,14 @@ Identifier *PostExp::opId() { return (op == TOKplusplus)
                                 ? Id::postinc
                                 : Id::postdec; }
 
-int AddExp::isCommutative()  { return TRUE; }
+int AddExp::isCommutative()  { return true; }
 Identifier *AddExp::opId()   { return Id::add; }
 Identifier *AddExp::opId_r() { return Id::add_r; }
 
 Identifier *MinExp::opId()   { return Id::sub; }
 Identifier *MinExp::opId_r() { return Id::sub_r; }
 
-int MulExp::isCommutative()  { return TRUE; }
+int MulExp::isCommutative()  { return true; }
 Identifier *MulExp::opId()   { return Id::mul; }
 Identifier *MulExp::opId_r() { return Id::mul_r; }
 
@@ -107,10 +102,8 @@ Identifier *DivExp::opId_r() { return Id::div_r; }
 Identifier *ModExp::opId()   { return Id::mod; }
 Identifier *ModExp::opId_r() { return Id::mod_r; }
 
-#if DMDV2
 Identifier *PowExp::opId()   { return Id::pow; }
 Identifier *PowExp::opId_r() { return Id::pow_r; }
-#endif
 
 Identifier *ShlExp::opId()   { return Id::shl; }
 Identifier *ShlExp::opId_r() { return Id::shl_r; }
@@ -121,15 +114,15 @@ Identifier *ShrExp::opId_r() { return Id::shr_r; }
 Identifier *UshrExp::opId()   { return Id::ushr; }
 Identifier *UshrExp::opId_r() { return Id::ushr_r; }
 
-int AndExp::isCommutative()  { return TRUE; }
+int AndExp::isCommutative()  { return true; }
 Identifier *AndExp::opId()   { return Id::iand; }
 Identifier *AndExp::opId_r() { return Id::iand_r; }
 
-int OrExp::isCommutative()  { return TRUE; }
+int OrExp::isCommutative()  { return true; }
 Identifier *OrExp::opId()   { return Id::ior; }
 Identifier *OrExp::opId_r() { return Id::ior_r; }
 
-int XorExp::isCommutative()  { return TRUE; }
+int XorExp::isCommutative()  { return true; }
 Identifier *XorExp::opId()   { return Id::ixor; }
 Identifier *XorExp::opId_r() { return Id::ixor_r; }
 
@@ -151,10 +144,10 @@ Identifier *UshrAssignExp::opId()  { return Id::ushrass; }
 Identifier * CatAssignExp::opId()  { return Id::catass;  }
 Identifier * PowAssignExp::opId()  { return Id::powass;  }
 
-int EqualExp::isCommutative()  { return TRUE; }
+int EqualExp::isCommutative()  { return true; }
 Identifier *EqualExp::opId()   { return Id::eq; }
 
-int CmpExp::isCommutative()  { return TRUE; }
+int CmpExp::isCommutative()  { return true; }
 Identifier *CmpExp::opId()   { return Id::cmp; }
 
 Identifier *ArrayExp::opId()    { return Id::index; }
@@ -219,7 +212,6 @@ Expression *UnaExp::op_overload(Scope *sc)
 {
     //printf("UnaExp::op_overload() (%s)\n", toChars());
 
-#if DMDV2
     if (e1->op == TOKarray)
     {
         ArrayExp *ae = (ArrayExp *)e1;
@@ -311,7 +303,6 @@ Expression *UnaExp::op_overload(Scope *sc)
             att1 = NULL;
         }
     }
-#endif
 
     e1 = e1->semantic(sc);
     e1 = resolveProperties(sc, e1);
@@ -345,7 +336,6 @@ Expression *UnaExp::op_overload(Scope *sc)
         }
 #endif
 
-#if DMDV2
         /* Rewrite as:
          *      e1.opUnary!("+")();
          */
@@ -373,7 +363,6 @@ Expression *UnaExp::op_overload(Scope *sc)
             ue->e1 = e1;
             return ue->trySemantic(sc);
         }
-#endif
     }
     return NULL;
 }
@@ -501,7 +490,6 @@ Expression *BinExp::op_overload(Scope *sc)
 #endif
 
     Objects *tiargs = NULL;
-#if DMDV2
     if (op == TOKplusplus || op == TOKminusminus)
     {   // Bug4099 fix
         if (ad1 && search_function(ad1, Id::opUnary))
@@ -537,7 +525,6 @@ Expression *BinExp::op_overload(Scope *sc)
             tiargs = opToArg(sc, op);
         }
     }
-#endif
 
     if (s || s_r)
     {
@@ -692,7 +679,6 @@ L1:
     }
 #endif
 
-#if DMDV2
     // Try alias this on first operand
     if (ad1 && ad1->aliasthis &&
         !(op == TOKassign && ad2 && ad1 == ad2))   // See Bugzilla 2943
@@ -731,7 +717,6 @@ L1:
         be->e2 = e2;
         return be->trySemantic(sc);
     }
-#endif
     return NULL;
 }
 
@@ -948,7 +933,6 @@ Expression *BinAssignExp::op_overload(Scope *sc)
 {
     //printf("BinAssignExp::op_overload() (%s)\n", toChars());
 
-#if DMDV2
     if (e1->op == TOKarray)
     {
         ArrayExp *ae = (ArrayExp *)e1;
@@ -1045,7 +1029,6 @@ Expression *BinAssignExp::op_overload(Scope *sc)
             att1 = NULL;
         }
     }
-#endif
 
     BinExp::semantic(sc);
     e1 = resolveProperties(sc, e1);
@@ -1071,7 +1054,6 @@ Expression *BinAssignExp::op_overload(Scope *sc)
 #endif
 
     Objects *tiargs = NULL;
-#if DMDV2
     if (!s)
     {   /* Try the new D2 scheme, opOpAssign
          */
@@ -1091,7 +1073,6 @@ Expression *BinAssignExp::op_overload(Scope *sc)
             tiargs = opToArg(sc, op);
         }
     }
-#endif
 
     if (s)
     {
@@ -1131,7 +1112,6 @@ Expression *BinAssignExp::op_overload(Scope *sc)
 
 L1:
 
-#if DMDV2
     // Try alias this on first operand
     if (ad1 && ad1->aliasthis)
     {
@@ -1166,7 +1146,6 @@ L1:
         be->e2 = e2;
         return be->trySemantic(sc);
     }
-#endif
     return NULL;
 }
 
@@ -1226,10 +1205,8 @@ Dsymbol *search_function(ScopeDsymbol *ad, Identifier *funcid)
 int ForeachStatement::inferAggregate(Scope *sc, Dsymbol *&sapply)
 {
     Identifier *idapply = (op == TOKforeach) ? Id::apply : Id::applyReverse;
-#if DMDV2
     Identifier *idfront = (op == TOKforeach) ? Id::Ffront : Id::Fback;
     int sliced = 0;
-#endif
     Type *tab;
     Type *att = NULL;
     Expression *org_aggr = aggr;
@@ -1265,7 +1242,6 @@ int ForeachStatement::inferAggregate(Scope *sc, Dsymbol *&sapply)
                 goto Laggr;
 
             Laggr:
-#if DMDV2
                 if (!sliced)
                 {
                     sapply = search_function(ad, idapply);
@@ -1298,13 +1274,6 @@ int ForeachStatement::inferAggregate(Scope *sc, Dsymbol *&sapply)
                     aggr = new DotIdExp(aggr->loc, aggr, ad->aliasthis->ident);
                     continue;
                 }
-#else
-                sapply = search_function(ad, idapply);
-                if (sapply)
-                {   // opApply aggregate
-                    break;
-                }
-#endif
                 goto Lerr;
 
             case Tdelegate:
@@ -1488,7 +1457,7 @@ static Dsymbol *inferApplyArgTypesX(Expression *ethis, FuncDeclaration *fstart, 
   struct ParamOpOver
   {
     Parameters *arguments;
-    int mod;
+    unsigned char mod;
     MATCH match;
     FuncDeclaration *fd_best;
     FuncDeclaration *fd_ambig;

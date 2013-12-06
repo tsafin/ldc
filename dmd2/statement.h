@@ -326,6 +326,7 @@ public:
     Statement *syntaxCopy();
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     ScopeStatement *isScopeStatement() { return this; }
+    ReturnStatement *isReturnStatement();
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
@@ -434,7 +435,7 @@ public:
     FuncDeclaration *func;      // function we're lexically in
 
     Statements *cases;          // put breaks, continues, gotos and returns here
-    CompoundStatements *gotos;  // forward referenced goto's go here
+    ScopeStatements *gotos;     // forward referenced goto's go here
 
     ForeachStatement(Loc loc, TOK op, Parameters *arguments, Expression *aggr, Statement *body);
     Statement *syntaxCopy();
@@ -455,7 +456,6 @@ public:
     void toIR(IRState *irs);
 };
 
-#if DMDV2
 class ForeachRangeStatement : public Statement
 {
 public:
@@ -483,7 +483,6 @@ public:
 
     void toIR(IRState *irs);
 };
-#endif
 
 class IfStatement : public Statement
 {
@@ -631,7 +630,6 @@ public:
 #endif
 };
 
-#if DMDV2
 
 class CaseRangeStatement : public Statement
 {
@@ -647,7 +645,6 @@ public:
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 };
 
-#endif
 
 class DefaultStatement : public Statement
 {
@@ -961,16 +958,19 @@ class GotoStatement : public Statement
 public:
     Identifier *ident;
     LabelDsymbol *label;
-#if !IN_LLVM
-    TryFinallyStatement *tf;
-#else
+#if IN_LLVM
     TryFinallyStatement *enclosingFinally;
     Statement* enclosingScopeExit;
+#else
+    TryFinallyStatement *tf;
 #endif
+    VarDeclaration *lastVar;
+    FuncDeclaration *fd;
 
     GotoStatement(Loc loc, Identifier *ident);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
+    bool checkLabel();
     int blockExit(bool mustNotThrow);
     Expression *interpret(InterState *istate);
     void ctfeCompile(CompiledCtfeFunction *ccf);
@@ -991,6 +991,7 @@ public:
     Statement* enclosingScopeExit;
 #endif
     Statement *gotoTarget;      // interpret
+    VarDeclaration *lastVar;
     block *lblock;              // back end
 
     Blocks *fwdrefs;            // forward references to this LabelStatement

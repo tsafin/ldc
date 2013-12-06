@@ -96,12 +96,12 @@ void unittests();
 
 #define DMDV1   0
 #define DMDV2   1       // Version 2.0 features
-#define SNAN_DEFAULT_INIT DMDV2 // if floats are default initialized to signalling NaN
-#define MODULEINFO_IS_STRUCT DMDV2   // if ModuleInfo is a struct rather than a class
+#define SNAN_DEFAULT_INIT 1 // if floats are default initialized to signalling NaN
+#define MODULEINFO_IS_STRUCT 1   // if ModuleInfo is a struct rather than a class
 #define PULL93  0       // controversial pull #93 for bugzilla 3449
 
 // Set if C++ mangling is done by the front end
-#define CPP_MANGLE (DMDV2 && (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS || IN_LLVM))
+#define CPP_MANGLE (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS)
 
 /* Other targets are TARGET_LINUX, TARGET_OSX, TARGET_FREEBSD, TARGET_OPENBSD and
  * TARGET_SOLARIS, which are
@@ -135,7 +135,7 @@ struct OutBuffer;
 // Can't include arraytypes.h here, need to declare these directly.
 template <typename TYPE> struct Array;
 typedef Array<class Identifier> Identifiers;
-typedef Array<char> Strings;
+typedef Array<const char> Strings;
 
 #if IN_LLVM
 enum OUTPUTFLAG
@@ -151,9 +151,9 @@ typedef unsigned char ubyte;
 // Put command line switches in here
 struct Param
 {
+#if IN_LLVM
     bool obj;           // write object file
     bool link;          // perform link
-#if IN_LLVM
     bool verbose;       // verbose compile
     bool vtls;          // identify thread local variables
     bool vfield;        // identify non-mutable field variables
@@ -168,6 +168,8 @@ struct Param
     bool isOpenBSD;     // generate code for OpenBSD
     bool isSolaris;     // generate code for Solaris
 #else
+    char obj;           // write object file
+    char link;          // perform link
     char dll;           // generate shared dynamic library
     char lib;           // write library file instead of object file(s)
     char multiobj;      // break one object file into multiple ones
@@ -181,7 +183,7 @@ struct Param
     bool alwaysframe;   // always emit standard stack frame
     bool optimize;      // run optimizer
     char map;           // generate linker .map file
-    char is64bit;       // generate 64 bit code
+    bool is64bit;       // generate 64 bit code
     char isLP64;        // generate code for LP64
     char isLinux;       // generate code for linux
     char isOSX;         // generate code for Mac OSX
@@ -217,8 +219,6 @@ struct Param
     ubyte Dversion;      // D version number
     bool ignoreUnsupportedPragmas;      // rather than error on them
     bool enforcePropertySyntax;
-    bool addMain; // LDC_FIXME: Implement.
-    bool allInst; // LDC_FIXME: Implement.
 #else
     bool pic;           // generate position-independent-code for shared libs
     bool cov;           // generate code coverage data
@@ -227,38 +227,51 @@ struct Param
     char ignoreUnsupportedPragmas;      // rather than error on them
     char enforcePropertySyntax;
     char betterC;       // be a "better C" compiler; no dependency on D runtime
+#endif
     bool addMain;       // add a default main() function
     bool allInst;       // generate code for all template instantiations
-#endif
 
-    char *argv0;        // program name
+    const char *argv0;    // program name
     Strings *imppath;     // array of char*'s of where to look for import modules
     Strings *fileImppath; // array of char*'s of where to look for file import modules
-    char *objdir;       // .obj/.lib file output directory
-    char *objname;      // .obj file output name
+    const char *objdir;   // .obj/.lib file output directory
+    const char *objname;  // .obj file output name
+    const char *libname;  // .lib file output name
 
-    bool doDocComments; // process embedded documentation comments
-    char *docdir;       // write documentation file to docdir directory
-    char *docname;      // write documentation file to docname
-    Strings *ddocfiles;   // macro include files for Ddoc
+#if IN_LLVM
+    bool doDocComments;  // process embedded documentation comments
+#else
+    char doDocComments;  // process embedded documentation comments
+#endif
+    const char *docdir;  // write documentation file to docdir directory
+    const char *docname; // write documentation file to docname
+    Strings *ddocfiles;  // macro include files for Ddoc
 
-    bool doHdrGeneration;       // process embedded documentation comments
-    char *hdrdir;               // write 'header' file to docdir directory
-    char *hdrname;              // write 'header' file to docname
+#if IN_LLVM
+    bool doHdrGeneration;  // process embedded documentation comments
+#else
+    char doHdrGeneration;  // process embedded documentation comments
+#endif
+    const char *hdrdir;    // write 'header' file to docdir directory
+    const char *hdrname;   // write 'header' file to docname
 
-    bool doXGeneration;         // write JSON file
-    char *xfilename;            // write JSON file to xfilename
+#if IN_LLVM
+    bool doXGeneration;    // write JSON file
+#else
+    char doXGeneration;    // write JSON file
+#endif
+    const char *xfilename; // write JSON file to xfilename
 
-    unsigned debuglevel;        // debug level
+    unsigned debuglevel;   // debug level
     Strings *debugids;     // debug identifiers
 
-    unsigned versionlevel;      // version level
+    unsigned versionlevel; // version level
     Strings *versionids;   // version identifiers
 
     Strings *defaultlibnames;	// default libraries for non-debug builds
     Strings *debuglibnames;	// default libraries for debug builds
 
-    char *moduleDepsFile;       // filename for deps output
+    const char *moduleDepsFile; // filename for deps output
     OutBuffer *moduleDeps;      // contents to be written to deps file
 
 #if IN_DMD
@@ -276,17 +289,17 @@ struct Param
     bool run;           // run resulting executable
 #if !IN_LLVM
     size_t runargs_length;
-    char** runargs;     // arguments for executable
+    const char** runargs; // arguments for executable
 #endif
 
     // Linker stuff
     Strings *objfiles;
     Strings *linkswitches;
     Strings *libfiles;
-    char *deffile;
-    char *resfile;
-    char *exefile;
-    char *mapfile;
+    const char *deffile;
+    const char *resfile;
+    const char *exefile;
+    const char *mapfile;
 #if IN_LLVM
     // Whether to keep all function bodies in .di file generation or to strip
     // those of plain functions. For DMD, this is govenered by the -inline
@@ -399,12 +412,7 @@ extern Global global;
 
 #include "longdouble.h"
 
-#ifdef __DMC__
- #include  <complex.h>
- typedef _Complex long double complex_t;
-#else
- #include "complex_t.h"
-#endif
+#include "complex_t.h"
 
 // Be careful not to care about sign when using dinteger_t
 //typedef uint64_t integer_t;
@@ -455,13 +463,6 @@ struct Loc
     bool equals(const Loc& loc);
 };
 
-#ifndef GCC_SAFE_DMD
-#undef TRUE
-#define TRUE    1
-#undef FALSE
-#define FALSE   0
-#endif
-
 #define INTERFACE_OFFSET        0       // if 1, put classinfo as first entry
                                         // in interface vtbl[]'s
 #define INTERFACE_VIRTUAL       0       // 1 means if an interface appears
@@ -497,9 +498,7 @@ enum MATCH
 {
     MATCHnomatch,       // no match
     MATCHconvert,       // match with conversions
-#if DMDV2
     MATCHconst,         // match with conversion to const
-#endif
     MATCHexact          // exact match
 };
 
@@ -520,6 +519,8 @@ void vdeprecation(Loc loc, const char *format, va_list ap, const char *p1 = NULL
 
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))
+#elif _MSC_VER
+__declspec(noreturn)
 #endif
 void fatal();
 
@@ -538,7 +539,7 @@ void halt();
 #if !IN_LLVM
 class Dsymbol;
 class Library;
-class File;
+struct File;
 void obj_start(char *srcfile);
 void obj_end(Library *library, File *objfile);
 void obj_append(Dsymbol *s);

@@ -120,12 +120,10 @@ AggregateDeclaration::AggregateDeclaration(Loc loc, Identifier *id)
     enclosing = NULL;
     vthis = NULL;
 
-#if DMDV2
     ctor = NULL;
     defaultCtor = NULL;
     aliasthis = NULL;
-    noDefaultCtor = FALSE;
-#endif
+    noDefaultCtor = false;
     dtor = NULL;
     getRTInfo = NULL;
 
@@ -565,7 +563,6 @@ StructDeclaration::StructDeclaration(Loc loc, Identifier *id)
     : AggregateDeclaration(loc, id)
 {
     zeroInit = 0;       // assume false until we do semantic processing
-#if DMDV2
     hasIdentityAssign = 0;
     hasIdentityEquals = 0;
     cpctor = NULL;
@@ -574,7 +571,6 @@ StructDeclaration::StructDeclaration(Loc loc, Identifier *id)
     xeq = NULL;
     xcmp = NULL;
     alignment = 0;
-#endif
     arg1type = NULL;
     arg2type = NULL;
 
@@ -582,16 +578,8 @@ StructDeclaration::StructDeclaration(Loc loc, Identifier *id)
     type = new TypeStruct(this);
 
 #if MODULEINFO_IS_STRUCT
-  #ifdef DMDV2
     if (id == Id::ModuleInfo && !Module::moduleinfo)
         Module::moduleinfo = this;
-  #else
-    if (id == Id::ModuleInfo)
-    {   if (Module::moduleinfo)
-            Module::moduleinfo->error("only object.d can define this reserved struct name");
-        Module::moduleinfo = this;
-    }
-  #endif
 #endif
 }
 
@@ -758,69 +746,6 @@ void StructDeclaration::semantic(Scope *sc)
         }
     }
 
-#if DMDV1
-    /* This doesn't work for DMDV2 because (ref S) and (S) parameter
-     * lists will overload the same.
-     */
-    /* The TypeInfo_Struct is expecting an opEquals and opCmp with
-     * a parameter that is a pointer to the struct. But if there
-     * isn't one, but is an opEquals or opCmp with a value, write
-     * another that is a shell around the value:
-     *  int opCmp(struct *p) { return opCmp(*p); }
-     */
-
-    TypeFunction *tfeqptr;
-    {
-        Parameters *arguments = new Parameters;
-        Parameter *arg = new Parameter(STCin, handle, Id::p, NULL);
-
-        arguments->push(arg);
-        tfeqptr = new TypeFunction(arguments, Type::tint32, 0, LINKd);
-        tfeqptr = (TypeFunction *)tfeqptr->semantic(Loc(), sc);
-    }
-
-    TypeFunction *tfeq;
-    {
-        Parameters *arguments = new Parameters;
-        Parameter *arg = new Parameter(STCin, type, NULL, NULL);
-
-        arguments->push(arg);
-        tfeq = new TypeFunction(arguments, Type::tint32, 0, LINKd);
-        tfeq = (TypeFunction *)tfeq->semantic(Loc(), sc);
-    }
-
-    Identifier *id = Id::eq;
-    for (int i = 0; i < 2; i++)
-    {
-        Dsymbol *s = search_function(this, id);
-        FuncDeclaration *fdx = s ? s->isFuncDeclaration() : NULL;
-        if (fdx)
-        {   FuncDeclaration *fd = fdx->overloadExactMatch(tfeqptr);
-            if (!fd)
-            {   fd = fdx->overloadExactMatch(tfeq);
-                if (fd)
-                {   // Create the thunk, fdptr
-                    FuncDeclaration *fdptr = new FuncDeclaration(loc, loc, fdx->ident, STCundefined, tfeqptr);
-                    Expression *e = new IdentifierExp(loc, Id::p);
-                    e = new PtrExp(loc, e);
-                    Expressions *args = new Expressions();
-                    args->push(e);
-                    e = new IdentifierExp(loc, id);
-                    e = new CallExp(loc, e, args);
-                    fdptr->fbody = new ReturnStatement(loc, e);
-                    ScopeDsymbol *s = fdx->parent->isScopeDsymbol();
-                    assert(s);
-                    s->members->push(fdptr);
-                    fdptr->addMember(sc, s, 1);
-                    fdptr->semantic(sc2);
-                }
-            }
-        }
-
-        id = Id::cmp;
-    }
-#endif
-#if DMDV2
     dtor = buildDtor(sc2);
     postblit = buildPostBlit(sc2);
     cpctor = buildCpCtor(sc2);
@@ -840,7 +765,6 @@ void StructDeclaration::semantic(Scope *sc)
     /* Defer requesting semantic3 until TypeInfo generation is actually invoked.
      * See Type::getTypeInfo().
      */
-#endif
     inv = buildInv(sc2);
 
     sc2->pop();

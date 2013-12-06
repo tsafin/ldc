@@ -64,6 +64,7 @@ enum PROT;
 
 #define SCOPEctfe           0x0080  // inside a ctfe-only expression
 #define SCOPEnoaccesscheck  0x0100  // don't do access checks
+#define SCOPEcompile        0x0200  // inside __traits(compile)
 
 struct Scope
 {
@@ -95,6 +96,7 @@ struct Scope
     int noctor;                 // set if constructor calls aren't allowed
     int intypeof;               // in typeof(exp)
     bool speculative;            // in __traits(compiles) or typeof(exp)
+    VarDeclaration *lastVar;    // Previous symbol used to prevent goto-skips-init
 
     unsigned callSuper;         // primitive flow analysis for constructors
     unsigned *fieldinit;

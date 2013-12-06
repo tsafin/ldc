@@ -47,9 +47,9 @@ long __cdecl __ehfilter(LPEXCEPTION_POINTERS ep);
 #endif
 
 #if !IN_LLVM
-int response_expand(size_t *pargc, char ***pargv);
+int response_expand(size_t *pargc, const char ***pargv);
 void browse(const char *url);
-void getenv_setargv(const char *envvar, size_t *pargc, char** *pargv);
+void getenv_setargv(const char *envvar, size_t *pargc, const char** *pargv);
 
 void obj_start(char *srcfile);
 void obj_end(Library *library, File *objfile);
@@ -57,7 +57,7 @@ void obj_end(Library *library, File *objfile);
 
 void printCtfePerformanceStats();
 
-static bool parse_arch(size_t argc, char** argv, bool is64bit);
+static bool parse_arch(size_t argc, const char** argv, bool is64bit);
 
 /** Normalize path by turning forward slashes into backslashes */
 void toWinPath(char *src)
@@ -384,7 +384,7 @@ Usage:\n\
   -debuglib=name    set symbolic debug library to name\n\
   -defaultlib=name  set default library to name\n\
   -deps          print module dependencies (imports/file/version/debug/lib)\n\
-  -deps=filename write module dependencies to filename (only imports - deprecated)\n%s\
+  -deps=filename write module dependencies to filename (only imports)\n%s\
   -g             add symbolic debug info\n\
   -gc            add symbolic debug info, pretend to be C\n\
   -gs            always emit stack frame\n\
@@ -432,14 +432,6 @@ Usage:\n\
 
 extern signed char tyalignsize[];
 
-#if _WIN32 && __DMC__
-extern "C"
-{
-    extern int _xi_a;
-    extern int _end;
-}
-#endif
-
 static Module *entrypoint = NULL;
 
 /************************************
@@ -457,7 +449,7 @@ void genCmain(Scope *sc)
     /* The D code to be generated is provided as D source code in the form of a string.
      * Note that Solaris, for unknown reasons, requires both a main() and an _main()
      */
-    static utf8_t code[] = "extern(C) {\n\
+    static const utf8_t cmaincode[] = "extern(C) {\n\
         int _d_run_main(int argc, char **argv, void* mainFunc);\n\
         int _Dmain(char[][] args);\n\
         int main(int argc, char **argv) { return _d_run_main(argc, argv, &_Dmain); }\n\
@@ -468,7 +460,7 @@ void genCmain(Scope *sc)
     Identifier *id = Id::entrypoint;
     Module *m = new Module("__entrypoint.d", id, 0, 0);
 
-    Parser p(m, code, sizeof(code) / sizeof(code[0]), 0);
+    Parser p(m, cmaincode, strlen((const char *)cmaincode), 0);
     p.scanloc = Loc();
     p.nextToken();
     m->members = p.parseModule();
@@ -486,18 +478,10 @@ void genCmain(Scope *sc)
     entrypoint = m;
 }
 
-int tryMain(size_t argc, char *argv[])
+int tryMain(size_t argc, const char *argv[])
 {
-    mem.init();                         // initialize storage allocator
-    mem.setStackBottom(&argv);
-#if _WIN32 && __DMC__
-    mem.addroots((char *)&_xi_a, (char *)&_end);
-#endif
-
     Strings files;
     Strings libmodules;
-    char *p;
-    Module *m;
     size_t argcstart = argc;
     int setdebuglib = 0;
     char noboundscheck = 0;
@@ -552,7 +536,7 @@ int tryMain(size_t argc, char *argv[])
     global.params.is64bit = (sizeof(size_t) == 8);
 
 #if TARGET_WINDOS
-    global.params.is64bit = 0;
+    global.params.is64bit = false;
     global.params.defaultlibname = "phobos";
 #elif TARGET_LINUX
     global.params.defaultlibname = "libphobos2.a";
@@ -597,9 +581,7 @@ int tryMain(size_t argc, char *argv[])
 
     VersionCondition::addPredefinedGlobalIdent("LittleEndian");
     //VersionCondition::addPredefinedGlobalIdent("D_Bits");
-#if DMDV2
     VersionCondition::addPredefinedGlobalIdent("D_Version2");
-#endif
     VersionCondition::addPredefinedGlobalIdent("all");
 
 #if _WIN32
@@ -611,7 +593,7 @@ int tryMain(size_t argc, char *argv[])
 #endif
 
     size_t dflags_argc = 0;
-    char** dflags_argv = NULL;
+    const char** dflags_argv = NULL;
     getenv_setargv("DFLAGS", &dflags_argc, &dflags_argv);
 
     bool is64bit = global.params.is64bit; // use default
@@ -619,7 +601,8 @@ int tryMain(size_t argc, char *argv[])
     is64bit = parse_arch(dflags_argc, dflags_argv, is64bit);
     global.params.is64bit = is64bit;
 
-    inifile(argv[0], inifilename, is64bit ? "Environment64" : "Environment32");
+    const char *envsec = is64bit ? "Environment64" : "Environment32";
+    inifile(argv[0], inifilename, envsec);
 
     getenv_setargv("DFLAGS", &argc, &argv);
 
@@ -632,7 +615,7 @@ int tryMain(size_t argc, char *argv[])
 
     for (size_t i = 1; i < argc; i++)
     {
-        p = argv[i];
+        const char *p = argv[i];
         if (*p == '-')
         {
             if (strcmp(p + 1, "allinst") == 0)
@@ -657,10 +640,10 @@ int tryMain(size_t argc, char *argv[])
                     {   long percent;
 
                         errno = 0;
-                        percent = strtol(p + 5, &p, 10);
+                        percent = strtol(p + 5, (char **)&p, 10);
                         if (*p || errno || percent > 100)
                             goto Lerror;
-                        global.params.covPercent = percent;
+                        global.params.covPercent = (unsigned char)percent;
                     }
                     else
                         goto Lerror;
@@ -704,14 +687,13 @@ int tryMain(size_t argc, char *argv[])
                 global.params.trace = 1;
             }
             else if (strcmp(p + 1, "m32") == 0)
-                global.params.is64bit = 0;
+                global.params.is64bit = false;
             else if (strcmp(p + 1, "m64") == 0)
-                global.params.is64bit = 1;
+                global.params.is64bit = true;
             else if (strcmp(p + 1, "profile") == 0)
                 global.params.trace = 1;
             else if (strcmp(p + 1, "v") == 0)
                 global.params.verbose = 1;
-#if DMDV2
             else if (strcmp(p + 1, "vtls") == 0)
                 global.params.vtls = 1;
             else if (memcmp(p + 1, "transition", 10) == 0)
@@ -740,7 +722,7 @@ Language changes listed by -transition=id:\n\
                     {   long num;
 
                         errno = 0;
-                        num = strtol(p + 12, &p, 10);
+                        num = strtol(p + 12, (char **)&p, 10);
                         if (*p || errno || num > INT_MAX)
                             goto Lerror;
                         switch (num)    // Bugzilla issue number
@@ -767,7 +749,6 @@ Language changes listed by -transition=id:\n\
                 else
                     goto Lerror;
             }
-#endif
             else if (strcmp(p + 1, "w") == 0)
                 global.params.warnings = 1;
             else if (strcmp(p + 1, "wi") == 0)
@@ -786,7 +767,7 @@ Language changes listed by -transition=id:\n\
                         if (!p[3])
                             goto Lnoarg;
 #if _WIN32
-                        toWinPath(p + 3);
+                        toWinPath((char *)p + 3);
 #endif
                         global.params.objdir = p + 3;
                         break;
@@ -795,7 +776,7 @@ Language changes listed by -transition=id:\n\
                         if (!p[3])
                             goto Lnoarg;
 #if _WIN32
-                        toWinPath(p + 3);
+                        toWinPath((char *)p + 3);
 #endif
                         global.params.objname = p + 3;
                         break;
@@ -892,10 +873,8 @@ Language changes listed by -transition=id:\n\
                 global.params.release = 1;
             else if (strcmp(p + 1, "betterC") == 0)
                 global.params.betterC = 1;
-#if DMDV2
             else if (strcmp(p + 1, "noboundscheck") == 0)
                 noboundscheck = 1;
-#endif
             else if (strcmp(p + 1, "unittest") == 0)
                 global.params.useUnitTests = 1;
             else if (p[1] == 'I')
@@ -922,7 +901,7 @@ Language changes listed by -transition=id:\n\
                     {   long level;
 
                         errno = 0;
-                        level = strtol(p + 7, &p, 10);
+                        level = strtol(p + 7, (char **)&p, 10);
                         if (*p || errno || level > INT_MAX)
                             goto Lerror;
                         DebugCondition::setGlobalLevel((int)level);
@@ -948,7 +927,7 @@ Language changes listed by -transition=id:\n\
                     {   long level;
 
                         errno = 0;
-                        level = strtol(p + 9, &p, 10);
+                        level = strtol(p + 9, (char **)&p, 10);
                         if (*p || errno || level > INT_MAX)
                             goto Lerror;
                         VersionCondition::setGlobalLevel((int)level);
@@ -1017,39 +996,19 @@ Language changes listed by -transition=id:\n\
             else if (memcmp(p + 1, "man", 3) == 0)
             {
 #if _WIN32
-#if DMDV1
-                browse("http://www.digitalmars.com/d/1.0/dmd-windows.html");
-#else
                 browse("http://dlang.org/dmd-windows.html");
 #endif
-#endif
 #if linux
-#if DMDV1
-                browse("http://www.digitalmars.com/d/1.0/dmd-linux.html");
-#else
                 browse("http://dlang.org/dmd-linux.html");
 #endif
-#endif
 #if __APPLE__
-#if DMDV1
-                browse("http://www.digitalmars.com/d/1.0/dmd-osx.html");
-#else
                 browse("http://dlang.org/dmd-osx.html");
 #endif
-#endif
 #if __FreeBSD__
-#if DMDV1
-                browse("http://www.digitalmars.com/d/1.0/dmd-freebsd.html");
-#else
                 browse("http://dlang.org/dmd-freebsd.html");
 #endif
-#endif
 #if __OpenBSD__
-#if DMDV1
-                browse("http://www.digitalmars.com/d/1.0/dmd-openbsd.html");
-#else
                 browse("http://dlang.org/dmd-openbsd.html");
-#endif
 #endif
                 exit(EXIT_SUCCESS);
             }
@@ -1103,7 +1062,7 @@ Language changes listed by -transition=id:\n\
 
     if(global.params.is64bit != is64bit)
         error(Loc(), "the architecture must not be changed in the %s section of %s",
-              is64bit ? "Environment64" : "Environment32", inifilename);
+              envsec, inifilename);
 
     // Target uses 64bit pointers.
     global.params.isLP64 = global.params.is64bit;
@@ -1175,15 +1134,7 @@ Language changes listed by -transition=id:\n\
         global.params.objname = NULL;
 
         // Haven't investigated handling these options with multiobj
-        if (!global.params.cov && !global.params.trace
-#if 0 && TARGET_WINDOS
-            /* multiobj causes class/struct debug info to be attached to init-data,
-             * but this will not be linked into the executable, so this info is lost.
-             * Bugzilla 4014
-             */
-            && !global.params.symdebug
-#endif
-           )
+        if (!global.params.cov && !global.params.trace)
             global.params.multiobj = 1;
     }
     else if (global.params.run)
@@ -1234,14 +1185,12 @@ Language changes listed by -transition=id:\n\
         VersionCondition::addPredefinedGlobalIdent("D_Coverage");
     if (global.params.pic)
         VersionCondition::addPredefinedGlobalIdent("D_PIC");
-#if DMDV2
     if (global.params.useUnitTests)
         VersionCondition::addPredefinedGlobalIdent("unittest");
     if (global.params.useAssert)
         VersionCondition::addPredefinedGlobalIdent("assert");
     if (noboundscheck)
         VersionCondition::addPredefinedGlobalIdent("D_NoBoundsChecks");
-#endif
 
     VersionCondition::addPredefinedGlobalIdent("D_HardFloat");
 
@@ -1266,7 +1215,7 @@ Language changes listed by -transition=id:\n\
     {
         for (size_t i = 0; i < global.params.imppath->dim; i++)
         {
-            char *path = (*global.params.imppath)[i];
+            const char *path = (*global.params.imppath)[i];
             Strings *a = FileName::splitPath(path);
 
             if (a)
@@ -1283,7 +1232,7 @@ Language changes listed by -transition=id:\n\
     {
         for (size_t i = 0; i < global.params.fileImppath->dim; i++)
         {
-            char *path = (*global.params.fileImppath)[i];
+            const char *path = (*global.params.fileImppath)[i];
             Strings *a = FileName::splitPath(path);
 
             if (a)
@@ -1306,22 +1255,18 @@ Language changes listed by -transition=id:\n\
     bool firstmodule = true;
     for (size_t i = 0; i < files.dim; i++)
     {
-        const char *ext;
-        char *name;
+        ;
+        const char *name;
 
-        p = files[i];
+        const char *p = files[i];
 
 #if _WIN32
-        // Convert / to \ so linker will work
-        for (size_t j = 0; p[j]; j++)
-        {
-            if (p[j] == '/')
-                p[j] = '\\';
-        }
+        toWinPath((char *)p);
 #endif
 
-        p = (char *)FileName::name(p);          // strip path
-        ext = FileName::ext(p);
+        p = FileName::name(p);          // strip path
+        const char *ext = FileName::ext(p);
+        char *newname;
         if (ext)
         {   /* Deduce what to do with a file based on its extension
              */
@@ -1386,9 +1331,10 @@ Language changes listed by -transition=id:\n\
             {
                 ext--;                  // skip onto '.'
                 assert(*ext == '.');
-                name = (char *)mem.malloc((ext - p) + 1);
-                memcpy(name, p, ext - p);
-                name[ext - p] = 0;              // strip extension
+                newname = (char *)mem.malloc((ext - p) + 1);
+                memcpy(newname, p, ext - p);
+                newname[ext - p] = 0;              // strip extension
+                name = newname;
 
                 if (name[0] == 0 ||
                     strcmp(name, "..") == 0 ||
@@ -1415,11 +1361,11 @@ Language changes listed by -transition=id:\n\
          */
 
         Identifier *id = Lexer::idPool(name);
-        m = new Module(files[i], id, global.params.doDocComments, global.params.doHdrGeneration);
+        Module *m = new Module(files[i], id, global.params.doDocComments, global.params.doHdrGeneration);
         modules.push(m);
 
         if (firstmodule)
-        {   global.params.objfiles->push((char *)m->objfile->name->str);
+        {   global.params.objfiles->push(m->objfile->name->str);
             firstmodule = false;
         }
     }
@@ -1450,7 +1396,7 @@ Language changes listed by -transition=id:\n\
     AsyncRead *aw = AsyncRead::create(modules.dim);
     for (size_t i = 0; i < modules.dim; i++)
     {
-        m = modules[i];
+        Module *m = modules[i];
         aw->addFile(m->srcfile);
     }
     aw->start();
@@ -1458,7 +1404,7 @@ Language changes listed by -transition=id:\n\
     // Single threaded
     for (size_t i = 0; i < modules.dim; i++)
     {
-        m = modules[i];
+        Module *m = modules[i];
         m->read(Loc());
     }
 #endif
@@ -1468,7 +1414,7 @@ Language changes listed by -transition=id:\n\
     size_t filecount = modules.dim;
     for (size_t filei = 0, modi = 0; filei < filecount; filei++, modi++)
     {
-        m = modules[modi];
+        Module *m = modules[modi];
         if (global.params.verbose)
             fprintf(global.stdmsg, "parse     %s\n", m->toChars());
         if (!Module::rootModule)
@@ -1528,7 +1474,7 @@ Language changes listed by -transition=id:\n\
          */
         for (size_t i = 0; i < modules.dim; i++)
         {
-            m = modules[i];
+            Module *m = modules[i];
             if (global.params.verbose)
                 fprintf(global.stdmsg, "import    %s\n", m->toChars());
             m->genhdrfile();
@@ -1540,7 +1486,7 @@ Language changes listed by -transition=id:\n\
     // load all unconditional imports for better symbol resolving
     for (size_t i = 0; i < modules.dim; i++)
     {
-       m = modules[i];
+       Module *m = modules[i];
        if (global.params.verbose)
            fprintf(global.stdmsg, "importall %s\n", m->toChars());
        m->importAll(NULL);
@@ -1553,7 +1499,7 @@ Language changes listed by -transition=id:\n\
     // Do semantic analysis
     for (size_t i = 0; i < modules.dim; i++)
     {
-        m = modules[i];
+        Module *m = modules[i];
         if (global.params.verbose)
             fprintf(global.stdmsg, "semantic  %s\n", m->toChars());
         m->semantic();
@@ -1567,7 +1513,7 @@ Language changes listed by -transition=id:\n\
     // Do pass 2 semantic analysis
     for (size_t i = 0; i < modules.dim; i++)
     {
-        m = modules[i];
+        Module *m = modules[i];
         if (global.params.verbose)
             fprintf(global.stdmsg, "semantic2 %s\n", m->toChars());
         m->semantic2();
@@ -1578,7 +1524,7 @@ Language changes listed by -transition=id:\n\
     // Do pass 3 semantic analysis
     for (size_t i = 0; i < modules.dim; i++)
     {
-        m = modules[i];
+        Module *m = modules[i];
         if (global.params.verbose)
             fprintf(global.stdmsg, "semantic3 %s\n", m->toChars());
         m->semantic3();
@@ -1599,7 +1545,7 @@ Language changes listed by -transition=id:\n\
             // since otherwise functions in them cannot be inlined
             for (size_t i = 0; i < Module::amodules.dim; i++)
             {
-                m = Module::amodules[i];
+                Module *m = Module::amodules[i];
                 if (global.params.verbose)
                     fprintf(global.stdmsg, "semantic3 %s\n", m->toChars());
                 m->semantic3();
@@ -1630,7 +1576,7 @@ Language changes listed by -transition=id:\n\
     {
         for (size_t i = 0; i < modules.dim; i++)
         {
-            m = modules[i];
+            Module *m = modules[i];
             if (global.params.verbose)
                 fprintf(global.stdmsg, "inline scan %s\n", m->toChars());
             m->inlineScan();
@@ -1652,7 +1598,7 @@ Language changes listed by -transition=id:\n\
         // Add input object and input library files to output library
         for (size_t i = 0; i < libmodules.dim; i++)
         {
-            char *p = libmodules[i];
+            const char *p = libmodules[i];
             library->addObject(p, NULL, 0);
         }
     }
@@ -1711,7 +1657,7 @@ Language changes listed by -transition=id:\n\
             obj_start(modules[0]->srcfile->toChars());
         for (size_t i = 0; i < modules.dim; i++)
         {
-            m = modules[i];
+            Module *m = modules[i];
             if (global.params.verbose)
                 fprintf(global.stdmsg, "code      %s\n", m->toChars());
             m->genobjfile(0);
@@ -1729,7 +1675,7 @@ Language changes listed by -transition=id:\n\
     {
         for (size_t i = 0; i < modules.dim; i++)
         {
-            m = modules[i];
+            Module *m = modules[i];
             if (global.params.verbose)
                 fprintf(global.stdmsg, "code      %s\n", m->toChars());
             if (global.params.obj)
@@ -1794,7 +1740,7 @@ Language changes listed by -transition=id:\n\
     return status;
 }
 
-int main(int argc, char *argv[])
+int main(int argc, const char *argv[])
 {
     int status = -1;
 #if WINDOWS_SEH
@@ -1821,7 +1767,7 @@ int main(int argc, char *argv[])
  * The string is separated into arguments, processing \ and ".
  */
 
-void getenv_setargv(const char *envvar, size_t *pargc, char** *pargv)
+void getenv_setargv(const char *envvar, size_t *pargc, const char** *pargv)
 {
     char *p;
 
@@ -1965,10 +1911,10 @@ void escapePath(OutBuffer *buf, const char *fname)
  * to detect the desired architecture.
  */
 
-static bool parse_arch(size_t argc, char** argv, bool is64bit)
+static bool parse_arch(size_t argc, const char** argv, bool is64bit)
 {
     for (size_t i = 0; i < argc; ++i)
-    {   char* p = argv[i];
+    {   const char* p = argv[i];
         if (p[0] == '-')
         {
             if (strcmp(p + 1, "m32") == 0)

@@ -207,7 +207,7 @@ void AttribDeclaration::inlineScan()
     }
 }
 
-void AttribDeclaration::addComment(utf8_t *comment)
+void AttribDeclaration::addComment(const utf8_t *comment)
 {
     //printf("AttribDeclaration::addComment %s\n", comment);
     if (comment)
@@ -288,10 +288,10 @@ bool AttribDeclaration::hasStaticCtorOrDtor()
         {
             Dsymbol *s = (*d)[i];
             if (s->hasStaticCtorOrDtor())
-                return TRUE;
+                return true;
         }
     }
-    return FALSE;
+    return false;
 }
 
 const char *AttribDeclaration::kind()
@@ -497,11 +497,11 @@ const char *StorageClassDeclaration::stcToChars(char tmp[], StorageClass& stc)
         { STCalias,        TOKalias },
         { STCout,          TOKout },
         { STCin,           TOKin },
-#if DMDV2
         { STCmanifest,     TOKenum },
         { STCimmutable,    TOKimmutable },
         { STCshared,       TOKshared },
         { STCnothrow,      TOKnothrow },
+        { STCwild,         TOKwild },
         { STCpure,         TOKpure },
         { STCref,          TOKref },
         { STCtls },
@@ -511,7 +511,6 @@ const char *StorageClassDeclaration::stcToChars(char tmp[], StorageClass& stc)
         { STCtrusted,      TOKat,       "trusted" },
         { STCsystem,       TOKat,       "system" },
         { STCdisable,      TOKat,       "disable" },
-#endif
     };
 
     for (int i = 0; i < sizeof(table)/sizeof(table[0]); i++)
@@ -525,7 +524,6 @@ const char *StorageClassDeclaration::stcToChars(char tmp[], StorageClass& stc)
                 return "__thread";
 
             TOK tok = table[i].tok;
-#if DMDV2
             if (tok == TOKat)
             {
                 tmp[0] = '@';
@@ -533,7 +531,6 @@ const char *StorageClassDeclaration::stcToChars(char tmp[], StorageClass& stc)
                 return tmp;
             }
             else
-#endif
                 return Token::toChars(tok);
         }
     }
@@ -739,6 +736,12 @@ void ProtDeclaration::semantic(Scope *sc)
     {
         semanticNewSc(sc, sc->stc, sc->linkage, protection, 1, sc->structalign);
     }
+}
+
+void ProtDeclaration::emitComment(Scope *sc)
+{
+    if (protection != PROTprivate)
+        AttribDeclaration::emitComment(sc);
 }
 
 void ProtDeclaration::protectionToCBuffer(OutBuffer *buf, PROT protection)
@@ -1080,7 +1083,6 @@ void PragmaDeclaration::semantic(Scope *sc)
         }
         goto Lnodecl;
     }
-#if DMDV2
     else if (ident == Id::startaddress)
     {
         if (!args || args->dim != 1)
@@ -1102,7 +1104,6 @@ void PragmaDeclaration::semantic(Scope *sc)
         }
         goto Lnodecl;
     }
-#endif
     else if (ident == Id::mangle)
     {
         if (!args || args->dim != 1)
@@ -1388,7 +1389,7 @@ void ConditionalDeclaration::importAll(Scope *sc)
     }
 }
 
-void ConditionalDeclaration::addComment(utf8_t *comment)
+void ConditionalDeclaration::addComment(const utf8_t *comment)
 {
     /* Because addComment is called by the parser, if we called
      * include() it would define a version before it was used.
@@ -1605,7 +1606,8 @@ int CompileDeclaration::addMember(Scope *sc, ScopeDsymbol *sd, int memnum)
 
     this->sd = sd;
     if (memnum == 0)
-    {   /* No members yet, so parse the mixin now
+    {
+        /* No members yet, so parse the mixin now
          */
         compileIt(sc);
         memnum |= AttribDeclaration::addMember(sc, sd, memnum);
@@ -1624,13 +1626,13 @@ void CompileDeclaration::compileIt(Scope *sc)
     exp = exp->ctfeInterpret();
     StringExp *se = exp->toString();
     if (!se)
-    {   exp->error("argument to mixin must be a string, not (%s)", exp->toChars());
+    {
+        exp->error("argument to mixin must be a string, not (%s)", exp->toChars());
     }
     else
     {
         se = se->toUTF8(sc);
-        Parser p(sc->module, (utf8_t *)se->string, se->len, 0);
-        p.scanloc = loc;
+        Parser p(loc, sc->module, (utf8_t *)se->string, se->len, 0);
         p.nextToken();
         unsigned errors = global.errors;
         decl = p.parseDeclDefs(0);
@@ -1650,6 +1652,15 @@ void CompileDeclaration::semantic(Scope *sc)
         compileIt(sc);
         AttribDeclaration::addMember(sc, sd, 0);
         compiled = 1;
+
+        if (scope && decl)
+        {
+            for (size_t i = 0; i < decl->dim; i++)
+            {
+                Dsymbol *s = (*decl)[i];
+                s->setScope(scope);
+            }
+        }
     }
     AttribDeclaration::semantic(sc);
 }

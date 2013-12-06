@@ -314,12 +314,13 @@ Expression *copyLiteral(Expression *e)
     }
     else if (e->op == TOKfunction || e->op == TOKdelegate
             || e->op == TOKsymoff || e->op == TOKnull
-            || e->op == TOKvar
+            || e->op == TOKvar || e->op == TOKdotvar
             || e->op == TOKint64 || e->op == TOKfloat64
             || e->op == TOKchar || e->op == TOKcomplex80
             || e->op == TOKvoid)
-    {   // Simple value types
-        Expression *r = e->syntaxCopy();
+    {
+        // Simple value types
+        Expression *r = e->copy();  // keep e1 for DelegateExp and DotVarExp
         r->type = e->type;
         return r;
     }
@@ -331,12 +332,14 @@ Expression *copyLiteral(Expression *e)
         else if (e->op == TOKindex)
             r = new IndexExp(e->loc, ((IndexExp *)e)->e1, ((IndexExp *)e)->e2);
         else if (e->op == TOKdotvar)
+        {
 #if DMDV2
             r = new DotVarExp(e->loc, ((DotVarExp *)e)->e1,
                 ((DotVarExp *)e)->var, ((DotVarExp *)e)->hasOverloads);
 #else
             r = new DotVarExp(e->loc, ((DotVarExp *)e)->e1, ((DotVarExp *)e)->var);
 #endif
+        }
         else
             assert(0);
         r->type = e->type;
@@ -470,7 +473,7 @@ ArrayLiteralExp *createBlockDuplicatedArrayLiteral(Loc loc, Type *type,
     {
         // If it is a multidimensional array literal, do it recursively
         elem = createBlockDuplicatedArrayLiteral(loc, type->nextOf(), elem,
-            ((TypeSArray *)type->nextOf())->dim->toInteger());
+            (size_t)((TypeSArray *)type->nextOf())->dim->toInteger());
     }
     bool mustCopy = needToCopyLiteral(elem);
     for (size_t i = 0; i < dim; i++)
@@ -489,15 +492,15 @@ ArrayLiteralExp *createBlockDuplicatedArrayLiteral(Loc loc, Type *type,
  * Create a string literal consisting of 'value' duplicated 'dim' times.
  */
 StringExp *createBlockDuplicatedStringLiteral(Loc loc, Type *type,
-        unsigned value, size_t dim, int sz)
+        unsigned value, size_t dim, unsigned char sz)
 {
     utf8_t *s = (utf8_t *)mem.calloc(dim + 1, sz);
     for (size_t elemi = 0; elemi < dim; ++elemi)
     {
         switch (sz)
         {
-            case 1:     s[elemi] = value; break;
-            case 2:     ((unsigned short *)s)[elemi] = value; break;
+            case 1:     s[elemi] = (utf8_t)value; break;
+            case 2:     ((unsigned short *)s)[elemi] = (unsigned short)value; break;
             case 4:     ((unsigned *)s)[elemi] = value; break;
             default:    assert(0);
         }
@@ -568,10 +571,10 @@ bool isPointer(Type *t)
     return tb->ty == Tpointer && tb->nextOf()->ty != Tfunction;
 }
 
-// For CTFE only. Returns true if 'e' is TRUE or a non-null pointer.
+// For CTFE only. Returns true if 'e' is true or a non-null pointer.
 int isTrueBool(Expression *e)
 {
-    return e->isBool(TRUE) || ((e->type->ty == Tpointer || e->type->ty == Tclass)
+    return e->isBool(true) || ((e->type->ty == Tpointer || e->type->ty == Tclass)
         && e->op != TOKnull);
 }
 
@@ -786,7 +789,7 @@ int comparePointers(Loc loc, TOK op, Type *type, Expression *agg1, dinteger_t of
 {
     if ( pointToSameMemoryBlock(agg1, agg2) )
     {
-        dinteger_t n;
+        int n;
         switch(op)
         {
         case TOKlt:          n = (ofs1 <  ofs2); break;
@@ -880,7 +883,7 @@ Expression *paintFloatInt(Expression *fromVal, Type *to)
         }
         else
         {
-            u.x = fromVal->toInteger();
+            u.x = (d_int32)fromVal->toInteger();
             return new RealExp(fromVal->loc, ldouble(u.f), to);
         }
     }
@@ -1128,6 +1131,7 @@ bool isCtfeComparable(Expression *e)
         x->op != TOKdelegate &&
         x->op != TOKarrayliteral &&
         x->op != TOKstructliteral &&
+        x->op != TOKassocarrayliteral &&
         x->op != TOKclassreference)
     {
         return false;
@@ -1191,29 +1195,7 @@ int intSignedCmp(TOK op, sinteger_t n1, sinteger_t n2)
 int realCmp(TOK op, real_t r1, real_t r2)
 {
     int n;
-#if __DMC__
-    // DMC is the only compiler I know of that handles NAN arguments
-    // correctly in comparisons.
-    switch (op)
-    {
-        case TOKlt:    n = r1 <  r2;        break;
-        case TOKle:    n = r1 <= r2;        break;
-        case TOKgt:    n = r1 >  r2;        break;
-        case TOKge:    n = r1 >= r2;        break;
 
-        case TOKleg:   n = r1 <>=  r2;      break;
-        case TOKlg:    n = r1 <>   r2;      break;
-        case TOKunord: n = r1 !<>= r2;      break;
-        case TOKue:    n = r1 !<>  r2;      break;
-        case TOKug:    n = r1 !<=  r2;      break;
-        case TOKuge:   n = r1 !<   r2;      break;
-        case TOKul:    n = r1 !>=  r2;      break;
-        case TOKule:   n = r1 !>   r2;      break;
-
-        default:
-            assert(0);
-    }
-#else
     // Don't rely on compiler, handle NAN arguments separately
     if (Port::isNan(r1) || Port::isNan(r2)) // if unordered
     {
@@ -1259,7 +1241,6 @@ int realCmp(TOK op, real_t r1, real_t r2)
                 assert(0);
         }
     }
-#endif
     return n;
 }
 
@@ -1294,11 +1275,11 @@ int ctfeCmpArrays(Loc loc, Expression *e1, Expression *e2, uinteger_t len)
 
     // Now both must be either TOKarrayliteral or TOKstring
     if (se1 && se2)
-        return sliceCmpStringWithString(se1, se2, lo1, lo2, len);
+        return sliceCmpStringWithString(se1, se2, (size_t)lo1, (size_t)lo2, (size_t)len);
     if (se1 && ae2)
-        return sliceCmpStringWithArray(se1, ae2, lo1, lo2, len);
+        return sliceCmpStringWithArray(se1, ae2, (size_t)lo1, (size_t)lo2, (size_t)len);
     if (se2 && ae1)
-        return -sliceCmpStringWithArray(se2, ae1, lo2, lo1, len);
+        return -sliceCmpStringWithArray(se2, ae1, (size_t)lo2, (size_t)lo1, (size_t)len);
 
     assert (ae1 && ae2);
     // Comparing two array literals. This case is potentially recursive.
@@ -1306,8 +1287,8 @@ int ctfeCmpArrays(Loc loc, Expression *e1, Expression *e2, uinteger_t len)
     // a full cmp.
     bool needCmp = ae1->type->nextOf()->isintegral();
     for (size_t i = 0; i < len; i++)
-    {   Expression *ee1 = (*ae1->elements)[lo1 + i];
-        Expression *ee2 = (*ae2->elements)[lo2 + i];
+    {   Expression *ee1 = (*ae1->elements)[(size_t)(lo1 + i)];
+        Expression *ee2 = (*ae2->elements)[(size_t)(lo2 + i)];
         if (needCmp)
         {   sinteger_t c = ee1->toInteger() - ee2->toInteger();
             if (c > 0)
@@ -1418,7 +1399,7 @@ int ctfeRawCmp(Loc loc, Expression *e1, Expression *e2)
             if (res != 0)
                 return res;
         }
-        return len1 - len2;
+        return (int)(len1 - len2);
     }
     if (e1->type->isintegral())
     {
@@ -1437,9 +1418,6 @@ int ctfeRawCmp(Loc loc, Expression *e1, Expression *e2)
         r1 = e1->toImaginary();
         r2 = e2->toImaginary();
      L1:
-#if __DMC__
-        return (r1 != r2);
-#else
         if (Port::isNan(r1) || Port::isNan(r2)) // if unordered
         {
             return 1;
@@ -1448,7 +1426,6 @@ int ctfeRawCmp(Loc loc, Expression *e1, Expression *e2)
         {
             return (r1 != r2);
         }
-#endif
     }
     else if (e1->type->iscomplex())
     {
@@ -1485,6 +1462,43 @@ int ctfeRawCmp(Loc loc, Expression *e1, Expression *e2)
             }
             return 0;   // All elements are equal
         }
+    }
+    if (e1->op == TOKassocarrayliteral && e2->op == TOKassocarrayliteral)
+    {
+        AssocArrayLiteralExp *es1 = (AssocArrayLiteralExp *)e1;
+        AssocArrayLiteralExp *es2 = (AssocArrayLiteralExp *)e2;
+
+        int dim = es1->keys->dim;
+        if (es2->keys->dim != dim)
+            return 1;
+
+        bool *used = (bool *)mem.malloc(sizeof(bool) * dim);
+        memset(used, 0, sizeof(bool) * dim);
+
+        for (size_t i = 0; i < dim; ++i)
+        {
+            Expression *k1 = (*es1->keys)[i];
+            Expression *v1 = (*es1->values)[i];
+
+            for (size_t j = 0; j < dim; ++j)
+            {
+                if (used[j])
+                    continue;
+                Expression *k2 = (*es2->keys)[j];
+                Expression *v2 = (*es2->values)[j];
+
+                if (ctfeRawCmp(loc, k1, k2))
+                    continue;
+                used[j] = true;
+                if (ctfeRawCmp(loc, v1, v2))
+                {
+                    mem.free(used);
+                    return 1;
+                }
+            }
+        }
+        mem.free(used);
+        return 0;
     }
     error(loc, "CTFE internal error: bad compare");
     assert(0);
@@ -1601,7 +1615,7 @@ Expression *ctfeCat(Type *type, Expression *e1, Expression *e2)
         StringExp *es1 = (StringExp *)e2;
         ArrayLiteralExp *es2 = (ArrayLiteralExp *)e1;
         size_t len = es1->len + es2->elements->dim;
-        int sz = es1->sz;
+        unsigned char sz = es1->sz;
 
         void *s = mem.malloc((len + 1) * sz);
         memcpy((char *)s + sz * es2->elements->dim, es1->string, es1->len * sz);
@@ -1641,7 +1655,7 @@ Expression *ctfeCat(Type *type, Expression *e1, Expression *e2)
         StringExp *es1 = (StringExp *)e1;
         ArrayLiteralExp *es2 = (ArrayLiteralExp *)e2;
         size_t len = es1->len + es2->elements->dim;
-        int sz = es1->sz;
+        unsigned char sz = es1->sz;
 
         void *s = mem.malloc((len + 1) * sz);
         memcpy(s, es1->string, es1->len * sz);
@@ -1746,7 +1760,7 @@ Expression *ctfeIndex(Loc loc, Type *type, Expression *e1, uinteger_t indx)
         error(loc, "array index %llu is out of bounds %s[0 .. %llu]", indx, e1->toChars(), (ulonglong)ale->elements->dim);
         return EXP_CANT_INTERPRET;
     }
-    Expression *e = (*ale->elements)[indx];
+    Expression *e = (*ale->elements)[(size_t)indx];
     return paintTypeOntoLiteral(type, e);
 }
 
@@ -1949,7 +1963,7 @@ Expression *changeArrayLiteralLength(Loc loc, TypeArray *arrayType,
     // Resolve slices
     size_t indxlo = 0;
     if (oldval->op == TOKslice)
-    {   indxlo = ((SliceExp *)oldval)->lwr->toInteger();
+    {   indxlo = (size_t)((SliceExp *)oldval)->lwr->toInteger();
         oldval = ((SliceExp *)oldval)->e1;
     }
     size_t copylen = oldlen < newlen ? oldlen : newlen;
@@ -1963,9 +1977,9 @@ Expression *changeArrayLiteralLength(Loc loc, TypeArray *arrayType,
         {
             switch (oldse->sz)
             {
-                case 1:     s[indxlo + elemi] = defaultValue; break;
-                case 2:     ((unsigned short *)s)[indxlo + elemi] = defaultValue; break;
-                case 4:     ((unsigned *)s)[indxlo + elemi] = defaultValue; break;
+                case 1:     s[(size_t)(indxlo + elemi)] = (utf8_t)defaultValue; break;
+                case 2:     ((unsigned short *)s)[(size_t)(indxlo + elemi)] = (unsigned short)defaultValue; break;
+                case 4:     ((unsigned *)s)[(size_t)(indxlo + elemi)] = defaultValue; break;
                 default:    assert(0);
             }
         }
@@ -2068,6 +2082,9 @@ bool isCtfeValueValid(Expression *newval)
 
     if (newval->op == TOKfunction)
         return true; // function literal or delegate literal
+
+    if (newval->op == TOKvector)
+        return true; // vector literal
 
     if (newval->op == TOKdelegate)
     {
@@ -2254,7 +2271,7 @@ Expression *TypeSArray::voidInitLiteral(VarDeclaration *var)
     bool mustCopy = (elem->op == TOKarrayliteral || elem->op == TOKstructliteral);
 
     Expressions *elements = new Expressions();
-    size_t d = dim->toInteger();
+    size_t d = (size_t)dim->toInteger();
     elements->setDim(d);
     for (size_t i = 0; i < d; i++)
     {   if (mustCopy && i > 0)

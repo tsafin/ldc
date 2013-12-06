@@ -57,8 +57,12 @@ Scope::Scope()
     this->enclosing = NULL;
     this->parent = NULL;
     this->sw = NULL;
+#if IN_LLVM
     this->enclosingFinally = NULL;
     this->enclosingScopeExit = NULL;
+#else
+    this->tf = NULL;
+#endif
     this->tinst = NULL;
     this->sbreak = NULL;
     this->scontinue = NULL;
@@ -78,6 +82,7 @@ Scope::Scope()
     this->noctor = 0;
     this->intypeof = 0;
     this->speculative = 0;
+    this->lastVar = NULL;
     this->callSuper = 0;
     this->fieldinit = NULL;
     this->fieldinit_dim = 0;
@@ -99,8 +104,12 @@ Scope::Scope(Scope *enclosing)
     this->scopesym = NULL;
     this->sd = NULL;
     this->sw = enclosing->sw;
+#if IN_LLVM
     this->enclosingFinally = enclosing->enclosingFinally;
     this->enclosingScopeExit = enclosing->enclosingScopeExit;
+#else
+    this->tf = enclosing->tf;
+#endif
     this->tinst = enclosing->tinst;
     this->sbreak = enclosing->sbreak;
     this->scontinue = enclosing->scontinue;
@@ -129,10 +138,11 @@ Scope::Scope(Scope *enclosing)
     this->noctor = enclosing->noctor;
     this->intypeof = enclosing->intypeof;
     this->speculative = enclosing->speculative;
+    this->lastVar = enclosing->lastVar;
     this->callSuper = enclosing->callSuper;
     this->fieldinit = enclosing->saveFieldInit();
     this->fieldinit_dim = enclosing->fieldinit_dim;
-    this->flags = (enclosing->flags & (SCOPEcontract | SCOPEdebug | SCOPEctfe));
+    this->flags = (enclosing->flags & (SCOPEcontract | SCOPEdebug | SCOPEctfe | SCOPEcompile));
     this->lastdc = NULL;
     this->lastoffset = 0;
     this->docbuf = enclosing->docbuf;
@@ -191,7 +201,7 @@ Scope *Scope::pop()
             size_t dim = fieldinit_dim;
             for (size_t i = 0; i < dim; i++)
                 enclosing->fieldinit[i] |= fieldinit[i];
-            delete[] fieldinit;
+            mem.free(fieldinit);
             fieldinit = NULL;
         }
     }
@@ -277,14 +287,9 @@ unsigned *Scope::saveFieldInit()
     if (fieldinit)  // copy
     {
         size_t dim = fieldinit_dim;
-        fi = new unsigned[dim];
-#if IN_LLVM // ASan
-        memcpy(fi, fieldinit, sizeof(*fi) * dim);
-#else
-        fi[0] = dim;
+        fi = (unsigned *)mem.malloc(sizeof(unsigned) * dim);
         for (size_t i = 0; i < dim; i++)
             fi[i] = fieldinit[i];
-#endif
     }
     return fi;
 }
@@ -455,9 +460,24 @@ Dsymbol *Scope::search(Loc loc, Identifier *ident, Dsymbol **pscopesym)
 }
 
 Dsymbol *Scope::insert(Dsymbol *s)
-{   Scope *sc;
-
-    for (sc = this; sc; sc = sc->enclosing)
+{
+    if (VarDeclaration *vd = s->isVarDeclaration())
+    {
+        if (lastVar)
+            vd->lastVar = lastVar;
+        lastVar = vd;
+    }
+    else if (WithScopeSymbol *ss = s->isWithScopeSymbol())
+    {
+        if (VarDeclaration *vd = ss->withstate->wthis)
+        {
+            if (lastVar)
+                vd->lastVar = lastVar;
+            lastVar = vd;
+        }
+        return NULL;
+    }
+    for (Scope *sc = this; sc; sc = sc->enclosing)
     {
         //printf("\tsc = %p\n", sc);
         if (sc->scopesym)

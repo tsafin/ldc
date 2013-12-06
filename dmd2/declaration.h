@@ -91,16 +91,16 @@ enum PURE;
 #define STC_TYPECTOR    (STCconst | STCimmutable | STCshared | STCwild)
 #define STC_FUNCATTR    (STCref | STCnothrow | STCpure | STCproperty | STCsafe | STCtrusted | STCsystem)
 
-#define STCproperty     0x100000000LL
-#define STCsafe         0x200000000LL
-#define STCtrusted      0x400000000LL
-#define STCsystem       0x800000000LL
-#define STCctfe         0x1000000000LL  // can be used in CTFE, even if it is static
-#define STCdisable      0x2000000000LL  // for functions that are not callable
-#define STCresult       0x4000000000LL  // for result variables passed to out contracts
+#define STCproperty      0x100000000LL
+#define STCsafe          0x200000000LL
+#define STCtrusted       0x400000000LL
+#define STCsystem        0x800000000LL
+#define STCctfe          0x1000000000LL  // can be used in CTFE, even if it is static
+#define STCdisable       0x2000000000LL  // for functions that are not callable
+#define STCresult        0x4000000000LL  // for result variables passed to out contracts
 #define STCnodefaultctor 0x8000000000LL  // must be set inside constructor
-#define STCtemp         0x10000000000LL  // temporary variable introduced by inlining
-                                         // and used only in backend process, so it's rvalue
+#define STCtemp          0x10000000000LL // temporary variable
+#define STCrvalue        0x20000000000LL // force rvalue for variables
 
 const StorageClass STCStorageClass = (STCauto | STCscope | STCstatic | STCextern | STCconst | STCfinal |
     STCabstract | STCsynchronized | STCdeprecated | STCoverride | STClazy | STCalias |
@@ -288,18 +288,15 @@ public:
     Initializer *init;
     unsigned offset;
     bool noscope;                // no auto semantics
-#if DMDV2
     FuncDeclarations nestedrefs; // referenced by these lexically nested functions
     bool isargptr;              // if parameter that _argptr points to
-#else
-    int nestedref;              // referenced by a lexically nested function
-#endif
     structalign_t alignment;
     bool ctorinit;              // it has been initialized in a ctor
     short onstack;              // 1: it has been allocated on the stack
                                 // 2: on stack, run destructor anyway
     int canassign;              // it can be assigned to
     Dsymbol *aliassym;          // if redone as alias to another symbol
+    VarDeclaration *lastVar;    // Linked list of variables for goto-skips-init detection
 
     // When interpreting, these point to the value (NULL if value not determinable)
     // The index of this variable on the CTFE stack, -1 if not allocated
@@ -311,12 +308,10 @@ public:
     void setValueWithoutChecking(Expression *newval);
     void setValue(Expression *newval);
 
-#if DMDV2
     VarDeclaration *rundtor;    // if !NULL, rundtor is tested at runtime to see
                                 // if the destructor should be run. Used to prevent
                                 // dtor calls on postblitted vars
     Expression *edtor;          // if !=NULL, does the destruction of the variable
-#endif
 
     VarDeclaration(Loc loc, Type *t, Identifier *id, Initializer *init);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -336,10 +331,8 @@ public:
     bool isThreadlocal();
     bool isCTFE();
     bool hasPointers();
-#if DMDV2
     bool canTakeAddressOf();
     bool needsAutoDtor();
-#endif
     Expression *callScopeDtor(Scope *sc);
     ExpInitializer *getExpInitializer();
     Expression *getConstInitializer(bool needFullType = true);
@@ -616,7 +609,6 @@ public:
 #endif
 };
 
-#if DMDV2
 class TypeInfoConstDeclaration : public TypeInfoDeclaration
 {
 public:
@@ -686,7 +678,6 @@ public:
     void llvmDefine();
 #endif
 };
-#endif
 
 /**************************************************************/
 
@@ -706,7 +697,6 @@ enum ILS
 };
 
 /**************************************************************/
-#if DMDV2
 
 enum BUILTIN
 {
@@ -733,9 +723,6 @@ enum BUILTIN
 
 Expression *eval_builtin(Loc loc, BUILTIN builtin, Expressions *arguments);
 
-#else
-enum BUILTIN { };
-#endif
 
 class FuncDeclaration : public Declaration
 {
@@ -812,8 +799,8 @@ public:
 #endif
 
     ReturnStatements *returns;
+    GotoStatements *gotos;              // Gotos with forward references
 
-#if DMDV2
     BUILTIN builtin;               // set if this is a known, builtin
                                         // function we can evaluate at compile
                                         // time
@@ -834,9 +821,6 @@ public:
     #define FUNCFLAGpurityInprocess 1   // working on determining purity
     #define FUNCFLAGsafetyInprocess 2   // working on determining safety
     #define FUNCFLAGnothrowInprocess 4  // working on determining nothrow
-#else
-    int nestedFrameRef;                 // !=0 if nested variables referenced
-#endif
 
     FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageClass storage_class, Type *type);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -897,7 +881,7 @@ public:
     void ctfeCompile();
     void inlineScan();
     int canInline(int hasthis, int hdrscan, int statementsToo);
-    Expression *expandInline(InlineScanState *iss, Expression *ethis, Expressions *arguments, Statement **ps);
+    Expression *expandInline(InlineScanState *iss, Expression *eret, Expression *ethis, Expressions *arguments, Statement **ps);
     const char *kind();
     void toDocBuffer(OutBuffer *buf, Scope *sc);
     FuncDeclaration *isUnique();
@@ -960,13 +944,11 @@ public:
 #endif
 };
 
-#if DMDV2
 FuncDeclaration *resolveFuncCall(Loc loc, Scope *sc, Dsymbol *s,
         Objects *tiargs,
         Type *tthis,
         Expressions *arguments,
         int flags = 0);
-#endif
 
 class FuncAliasDeclaration : public FuncDeclaration
 {
@@ -1001,6 +983,7 @@ public:
 
     FuncLiteralDeclaration *isFuncLiteralDeclaration() { return this; }
     const char *kind();
+    const char *toPrettyChars();
 
 #if IN_LLVM
     // If this is only used as alias parameter to a template instantiation,
@@ -1028,7 +1011,6 @@ public:
     CtorDeclaration *isCtorDeclaration() { return this; }
 };
 
-#if DMDV2
 class PostBlitDeclaration : public FuncDeclaration
 {
 public:
@@ -1045,7 +1027,6 @@ public:
 
     PostBlitDeclaration *isPostBlitDeclaration() { return this; }
 };
-#endif
 
 class DtorDeclaration : public FuncDeclaration
 {
@@ -1084,7 +1065,6 @@ public:
     StaticCtorDeclaration *isStaticCtorDeclaration() { return this; }
 };
 
-#if DMDV2
 class SharedStaticCtorDeclaration : public StaticCtorDeclaration
 {
 public:
@@ -1094,7 +1074,6 @@ public:
 
     SharedStaticCtorDeclaration *isSharedStaticCtorDeclaration() { return this; }
 };
-#endif
 
 class StaticDtorDeclaration : public FuncDeclaration
 {
@@ -1116,7 +1095,6 @@ public:
     StaticDtorDeclaration *isStaticDtorDeclaration() { return this; }
 };
 
-#if DMDV2
 class SharedStaticDtorDeclaration : public StaticDtorDeclaration
 {
 public:
@@ -1126,7 +1104,6 @@ public:
 
     SharedStaticDtorDeclaration *isSharedStaticDtorDeclaration() { return this; }
 };
-#endif
 
 class InvariantDeclaration : public FuncDeclaration
 {
@@ -1155,6 +1132,7 @@ public:
     bool addPreInvariant();
     bool addPostInvariant();
     void emitComment(Scope *sc);
+    void inlineScan();
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     UnitTestDeclaration *isUnitTestDeclaration() { return this; }

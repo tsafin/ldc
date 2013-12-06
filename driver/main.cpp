@@ -139,7 +139,7 @@ static void processVersions(std::vector<std::string>& list, const char* type,
 }
 
 // Helper function to handle -of, -od, etc.
-static void initFromString(char*& dest, const cl::opt<std::string>& src) {
+static void initFromString(const char*& dest, const cl::opt<std::string>& src) {
     dest = 0;
     if (src.getNumOccurrences() != 0) {
         if (src.empty())
@@ -370,7 +370,7 @@ static void parseCommandLine(int argc, char **argv, Strings &sourceFiles, bool &
         {
             for (unsigned i = 0; i < libs->dim; i++)
             {
-                char* lib = static_cast<char *>(libs->data[i]);
+                const char* lib = static_cast<const char *>(libs->data[i]);
                 char *arg = static_cast<char *>(mem.malloc(strlen(lib) + 3));
                 strcpy(arg, "-l");
                 strcpy(arg+2, lib);
@@ -720,9 +720,6 @@ void genCmain(Scope *sc)
 
 int main(int argc, char **argv)
 {
-    mem.init();                         // initialize storage allocator
-    mem.setStackBottom(&argv);
-
     // stack trace on signals
     llvm::sys::PrintStackTraceOnErrorSignal();
 
@@ -818,7 +815,7 @@ int main(int argc, char **argv)
     {
         for (unsigned i = 0; i < global.params.imppath->dim; i++)
         {
-            char *path = static_cast<char *>(global.params.imppath->data[i]);
+            const char *path = static_cast<const char *>(global.params.imppath->data[i]);
             Strings *a = FileName::splitPath(path);
 
             if (a)
@@ -835,7 +832,7 @@ int main(int argc, char **argv)
     {
         for (unsigned i = 0; i < global.params.fileImppath->dim; i++)
         {
-            char *path = static_cast<char *>(global.params.fileImppath->data[i]);
+            const char *path = static_cast<const char *>(global.params.fileImppath->data[i]);
             Strings *a = FileName::splitPath(path);
 
             if (a)
@@ -861,7 +858,7 @@ int main(int argc, char **argv)
         const char *ext;
         const char *name;
 
-        const char *p = static_cast<char *>(files.data[i]);
+        const char *p = static_cast<const char *>(files.data[i]);
 
         p = FileName::name(p);      // strip path
         ext = FileName::ext(p);
@@ -876,7 +873,7 @@ int main(int argc, char **argv)
                 Port::stricmp(ext, global.bc_ext) == 0)
 #endif
             {
-                global.params.objfiles->push(static_cast<char *>(files.data[i]));
+                global.params.objfiles->push(static_cast<const char *>(files.data[i]));
                 continue;
             }
 
@@ -888,39 +885,39 @@ int main(int argc, char **argv)
             if (Port::stricmp(ext, "lib") == 0)
 #endif
             {
-                global.params.libfiles->push(static_cast<char *>(files.data[i]));
+                global.params.libfiles->push(static_cast<const char *>(files.data[i]));
                 continue;
             }
 
             if (strcmp(ext, global.ddoc_ext) == 0)
             {
-                global.params.ddocfiles->push(static_cast<char *>(files.data[i]));
+                global.params.ddocfiles->push(static_cast<const char *>(files.data[i]));
                 continue;
             }
 
             if (FileName::equals(ext, global.json_ext))
             {
                 global.params.doXGeneration = 1;
-                global.params.xfilename = static_cast<char *>(files.data[i]);
+                global.params.xfilename = static_cast<const char *>(files.data[i]);
                 continue;
             }
 
 #if !POSIX
             if (Port::stricmp(ext, "res") == 0)
             {
-                global.params.resfile = static_cast<char *>(files.data[i]);
+                global.params.resfile = static_cast<const char *>(files.data[i]);
                 continue;
             }
 
             if (Port::stricmp(ext, "def") == 0)
             {
-                global.params.deffile = static_cast<char *>(files.data[i]);
+                global.params.deffile = static_cast<const char *>(files.data[i]);
                 continue;
             }
 
             if (Port::stricmp(ext, "exe") == 0)
             {
-                global.params.exefile = static_cast<char *>(files.data[i]);
+                global.params.exefile = static_cast<const char *>(files.data[i]);
                 continue;
             }
 #endif
@@ -953,14 +950,14 @@ int main(int argc, char **argv)
             if (!*p)
             {
         Linvalid:
-                error("invalid file name '%s'", static_cast<char *>(files.data[i]));
+                error("invalid file name '%s'", static_cast<const char *>(files.data[i]));
                 fatal();
             }
             name = p;
         }
 
         id = Lexer::idPool(name);
-        Module *m = new Module(static_cast<char *>(files.data[i]), id, global.params.doDocComments, global.params.doHdrGeneration);
+        Module *m = new Module(static_cast<const char *>(files.data[i]), id, global.params.doDocComments, global.params.doHdrGeneration);
         modules.push(m);
     }
 
@@ -1168,7 +1165,7 @@ int main(int argc, char **argv)
     {
         Module *m = modules[0];
 
-        char* oname;
+        const char* oname;
         const char* filename;
         if ((oname = global.params.exefile) || (oname = global.params.objname))
         {

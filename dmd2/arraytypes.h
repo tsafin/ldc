@@ -56,13 +56,15 @@ typedef Array<class AliasDeclaration> AliasDeclarations;
 
 typedef Array<class Module> Modules;
 
-typedef Array<class File> Files;
+typedef Array<struct File> Files;
 
 typedef Array<class CaseStatement> CaseStatements;
 
-typedef Array<class CompoundStatement> CompoundStatements;
+typedef Array<class ScopeStatement> ScopeStatements;
 
 typedef Array<class GotoCaseStatement> GotoCaseStatements;
+
+typedef Array<class GotoStatement> GotoStatements;
 
 typedef Array<class ReturnStatement> ReturnStatements;
 

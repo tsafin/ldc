@@ -46,7 +46,7 @@ public:
     void semantic2(Scope *sc);
     void semantic3(Scope *sc);
     void inlineScan();
-    void addComment(utf8_t *comment);
+    void addComment(const utf8_t *comment);
     void emitComment(Scope *sc);
     const char *kind();
     bool oneMember(Dsymbol **ps, Identifier *ident);
@@ -119,6 +119,7 @@ public:
     void importAll(Scope *sc);
     void setScope(Scope *sc);
     void semantic(Scope *sc);
+    void emitComment(Scope *sc);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     static void protectionToCBuffer(OutBuffer *buf, PROT protection);
@@ -184,7 +185,7 @@ public:
     bool oneMember(Dsymbol **ps, Identifier *ident);
     void emitComment(Scope *sc);
     Dsymbols *include(Scope *sc, ScopeDsymbol *s);
-    void addComment(utf8_t *comment);
+    void addComment(const utf8_t *comment);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toJson(JsonOut *json);
     void importAll(Scope *sc);

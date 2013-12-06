@@ -155,7 +155,6 @@ ClassDeclaration::ClassDeclaration(Loc loc, Identifier *id, BaseClasses *basecla
                 Type::typeinfotypelist = this;
             }
 
-#if DMDV2
             if (id == Id::TypeInfo_Const)
             {   if (!inObject)
                     error("%s", msg);
@@ -185,7 +184,6 @@ ClassDeclaration::ClassDeclaration(Loc loc, Identifier *id, BaseClasses *basecla
                     error("%s", msg);
                 Type::typeinfovector = this;
             }
-#endif
         }
 
         if (id == Id::Object)
@@ -213,16 +211,8 @@ ClassDeclaration::ClassDeclaration(Loc loc, Identifier *id, BaseClasses *basecla
         }
 
 #if !MODULEINFO_IS_STRUCT
-  #ifdef DMDV2
         if (id == Id::ModuleInfo && !Module::moduleinfo)
             Module::moduleinfo = this;
-  #else
-        if (id == Id::ModuleInfo)
-        {   if (Module::moduleinfo)
-                error("%s", msg);
-            Module::moduleinfo = this;
-        }
-  #endif
 #endif
     }
 
@@ -381,10 +371,21 @@ void ClassDeclaration::semantic(Scope *sc)
                         goto L7;
                     }
                 }
-                if (!tc->sym->symtab || tc->sym->sizeok == SIZEOKnone)
-                {   // Try to resolve forward reference
-                    if (/*doAncestorsSemantic == SemanticIn &&*/ tc->sym->scope)
-                        tc->sym->semantic(NULL);
+                if (tc->sym->scope)
+                {
+                    // Try to resolve forward reference
+                    tc->sym->semantic(NULL);
+                }
+
+                if (tc->sym->symtab && tc->sym->scope == NULL)
+                {
+                    /* Bugzilla 11034: Essentailly, class inheritance hierarchy
+                     * and instance size of each classes are orthogonal information.
+                     * Therefore, even if tc->sym->sizeof == SIZEOKnone,
+                     * we need to set baseClass field for class covariance check.
+                     */
+                    baseClass = tc->sym;
+                    b->base = baseClass;
                 }
                 if (!tc->sym->symtab || tc->sym->scope || tc->sym->sizeok == SIZEOKnone)
                 {
@@ -398,10 +399,6 @@ void ClassDeclaration::semantic(Scope *sc)
                         tc->sym->scope->module->addDeferredSemantic(tc->sym);
                     scope->module->addDeferredSemantic(this);
                     return;
-                }
-                else
-                {   baseClass = tc->sym;
-                    b->base = baseClass;
                 }
              L7: ;
             }
@@ -448,10 +445,10 @@ void ClassDeclaration::semantic(Scope *sc)
                     error("inherits from duplicate interface %s", b2->base->toChars());
             }
 
-            if (!tc->sym->symtab)
-            {   // Try to resolve forward reference
-                if (/*doAncestorsSemantic == SemanticIn &&*/ tc->sym->scope)
-                    tc->sym->semantic(NULL);
+            if (tc->sym->scope)
+            {
+                // Try to resolve forward reference
+                tc->sym->semantic(NULL);
             }
 
             b->base = tc->sym;
@@ -999,7 +996,6 @@ ClassDeclaration *ClassDeclaration::searchBase(Loc loc, Identifier *ident)
  * Return 1 if function is hidden (not findable through search).
  */
 
-#if DMDV2
 int isf(void *param, Dsymbol *s)
 {
     FuncDeclaration *fd = s->isFuncDeclaration();
@@ -1044,7 +1040,6 @@ int ClassDeclaration::isFuncHidden(FuncDeclaration *fd)
         return !fd->parent->isTemplateMixin();
     }
 }
-#endif
 
 /****************
  * Find virtual function matching identifier and type.
@@ -1172,7 +1167,6 @@ int ClassDeclaration::isCOMinterface()
     return 0;
 }
 
-#if DMDV2
 int ClassDeclaration::isCPPclass()
 {
     return cpp;
@@ -1182,7 +1176,6 @@ int ClassDeclaration::isCPPinterface()
 {
     return 0;
 }
-#endif
 
 
 /****************************************
@@ -1366,10 +1359,10 @@ void InterfaceDeclaration::semantic(Scope *sc)
                 baseclasses->remove(i);
                 continue;
             }
-            if (!b->base->symtab)
-            {   // Try to resolve forward reference
-                if (doAncestorsSemantic == SemanticIn && b->base->scope)
-                    b->base->semantic(NULL);
+            if (b->base->scope)
+            {
+                // Try to resolve forward reference
+                b->base->semantic(NULL);
             }
             if (!b->base->symtab || b->base->scope || b->base->inuse)
             {
@@ -1605,12 +1598,10 @@ int InterfaceDeclaration::isCOMinterface()
     return com;
 }
 
-#if DMDV2
 int InterfaceDeclaration::isCPPinterface()
 {
     return cpp;
 }
-#endif
 
 /*******************************************
  */

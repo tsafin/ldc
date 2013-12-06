@@ -103,11 +103,6 @@ bool RootObject::equals(RootObject *o)
     return o == this;
 }
 
-hash_t RootObject::hashCode()
-{
-    return (hash_t) this;
-}
-
 int RootObject::compare(RootObject *obj)
 {
     return this - obj;
@@ -133,104 +128,10 @@ void RootObject::toBuffer(OutBuffer *b)
     b->writestring("Object");
 }
 
-void RootObject::mark()
-{
-}
-
-/****************************** String ********************************/
-
-String::String(const char *str)
-    : str(mem.strdup(str))
-{
-}
-
-String::~String()
-{
-    mem.free((void *)str);
-}
-
-void String::mark()
-{
-    mem.mark((void *)str);
-}
-
-hash_t String::calcHash(const char *str, size_t len)
-{
-    hash_t hash = 0;
-
-    for (;;)
-    {
-        switch (len)
-        {
-            case 0:
-                return hash;
-
-            case 1:
-                hash *= 37;
-                hash += *(uint8_t *)str;
-                return hash;
-
-            case 2:
-                hash *= 37;
-                hash += *(uint16_t *)str;
-                return hash;
-
-            case 3:
-                hash *= 37;
-                hash += (*(uint16_t *)str << 8) +
-                        ((uint8_t *)str)[2];
-                return hash;
-
-            default:
-                hash *= 37;
-                hash += *(uint32_t *)str;
-                str += 4;
-                len -= 4;
-                break;
-        }
-    }
-}
-
-hash_t String::calcHash(const char *str)
-{
-    return calcHash(str, strlen(str));
-}
-
-hash_t String::hashCode()
-{
-    return calcHash(str, strlen(str));
-}
-
-size_t String::len()
-{
-    return strlen(str);
-}
-
-bool String::equals(RootObject *obj)
-{
-    return strcmp(str,((String *)obj)->str) == 0;
-}
-
-int String::compare(RootObject *obj)
-{
-    return strcmp(str,((String *)obj)->str);
-}
-
-char *String::toChars()
-{
-    return (char *)str;         // toChars() should really be const
-}
-
-void String::print()
-{
-    printf("String '%s'\n",str);
-}
-
-
 /****************************** FileName ********************************/
 
 FileName::FileName(const char *str)
-    : String(str)
+    : str(mem.strdup(str))
 {
 }
 
@@ -337,51 +238,6 @@ Strings *FileName::splitPath(const char *path)
         } while (c);
     }
     return array;
-}
-
-hash_t FileName::hashCode()
-{
-#if _WIN32
-    // We need a different hashCode because it must be case-insensitive
-    size_t len = strlen(str);
-    hash_t hash = 0;
-    utf8_t *s = (utf8_t *)str;
-
-    for (;;)
-    {
-        switch (len)
-        {
-            case 0:
-                return hash;
-
-            case 1:
-                hash *= 37;
-                hash += *(uint8_t *)s | 0x20;
-                return hash;
-
-            case 2:
-                hash *= 37;
-                hash += *(uint16_t *)s | 0x2020;
-                return hash;
-
-            case 3:
-                hash *= 37;
-                hash += ((*(uint16_t *)s << 8) +
-                         ((uint8_t *)s)[2]) | 0x202020;
-                break;
-
-            default:
-                hash *= 37;
-                hash += *(uint32_t *)s | 0x20202020;
-                s += 4;
-                len -= 4;
-                break;
-        }
-    }
-#else
-    // darwin HFS is case insensitive, though...
-    return String::hashCode();
-#endif
 }
 
 int FileName::compare(RootObject *obj)
@@ -941,6 +797,11 @@ void FileName::free(const char *str)
     mem.free((void *)str);
 }
 
+char *FileName::toChars()
+{
+    return (char *)str;         // toChars() should really be const
+}
+
 
 /****************************** File ********************************/
 
@@ -969,19 +830,12 @@ File::~File()
         if (ref == 0)
             mem.free(buffer);
 #if _WIN32
-        else if (ref == 2)
+        if (ref == 2)
             UnmapViewOfFile(buffer);
 #endif
     }
     if (touchtime)
         mem.free(touchtime);
-}
-
-void File::mark()
-{
-    mem.mark(buffer);
-    mem.mark(touchtime);
-    mem.mark(name);
 }
 
 /*************************************
@@ -1394,9 +1248,9 @@ Files *File::match(FileName *n)
             char *fn;
             File *f;
 
-            fn = (char *)mem.malloc(name - c + strlen(fileinfo.cFileName) + 1);
+            fn = (char *)mem.malloc(name - c + strlen(&fileinfo.cFileName[0]) + 1);
             memcpy(fn, c, name - c);
-            strcpy(fn + (name - c), fileinfo.cFileName);
+            strcpy(fn + (name - c), &fileinfo.cFileName[0]);
             f = new File(fn);
             f->touchtime = mem.malloc(sizeof(WIN32_FIND_DATAA));
             memcpy(f->touchtime, &fileinfo, sizeof(fileinfo));
@@ -1488,11 +1342,6 @@ char *OutBuffer::extractData()
     offset = 0;
     size = 0;
     return p;
-}
-
-void OutBuffer::mark()
-{
-    mem.mark(data);
 }
 
 void OutBuffer::reserve(size_t nbytes)
@@ -1860,98 +1709,4 @@ char *OutBuffer::toChars()
 {
     writeByte(0);
     return (char *)data;
-}
-
-// TODO: Remove (only used by disabled GC)
-/********************************* Bits ****************************/
-
-Bits::Bits()
-{
-    data = NULL;
-    bitdim = 0;
-    allocdim = 0;
-}
-
-Bits::~Bits()
-{
-    mem.free(data);
-}
-
-void Bits::mark()
-{
-    mem.mark(data);
-}
-
-void Bits::resize(unsigned bitdim)
-{
-    unsigned allocdim;
-    unsigned mask;
-
-    allocdim = (bitdim + 31) / 32;
-    data = (unsigned *)mem.realloc(data, allocdim * sizeof(data[0]));
-    if (this->allocdim < allocdim)
-        memset(data + this->allocdim, 0, (allocdim - this->allocdim) * sizeof(data[0]));
-
-    // Clear other bits in last word
-    mask = (1 << (bitdim & 31)) - 1;
-    if (mask)
-        data[allocdim - 1] &= ~mask;
-
-    this->bitdim = bitdim;
-    this->allocdim = allocdim;
-}
-
-void Bits::set(unsigned bitnum)
-{
-    data[bitnum / 32] |= 1 << (bitnum & 31);
-}
-
-void Bits::clear(unsigned bitnum)
-{
-    data[bitnum / 32] &= ~(1 << (bitnum & 31));
-}
-
-int Bits::test(unsigned bitnum)
-{
-    return data[bitnum / 32] & (1 << (bitnum & 31));
-}
-
-void Bits::set()
-{   unsigned mask;
-
-    memset(data, ~0, allocdim * sizeof(data[0]));
-
-    // Clear other bits in last word
-    mask = (1 << (bitdim & 31)) - 1;
-    if (mask)
-        data[allocdim - 1] &= mask;
-}
-
-void Bits::clear()
-{
-    memset(data, 0, allocdim * sizeof(data[0]));
-}
-
-void Bits::copy(Bits *from)
-{
-    assert(bitdim == from->bitdim);
-    memcpy(data, from->data, allocdim * sizeof(data[0]));
-}
-
-Bits *Bits::clone()
-{
-    Bits *b;
-
-    b = new Bits();
-    b->resize(bitdim);
-    b->copy(this);
-    return b;
-}
-
-void Bits::sub(Bits *b)
-{
-    unsigned u;
-
-    for (u = 0; u < allocdim; u++)
-        data[u] &= ~b->data[u];
 }

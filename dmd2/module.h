@@ -81,6 +81,7 @@ public:
 
     static AggregateDeclaration *moduleinfo;
 
+
     const char *arg;    // original argument name
     ModuleDeclaration *md; // if !NULL, the contents of the ModuleDeclaration declaration
     File *srcfile;      // input source file
@@ -88,7 +89,6 @@ public:
     File *hdrfile;      // 'header' file
     File *symfile;      // output symbol file
     File *docfile;      // output documentation file
-
     unsigned errors;    // if any errors in file
     unsigned numlines;  // number of lines in source file
     int isDocFile;      // if it is a documentation input file, not D source
@@ -122,10 +122,10 @@ public:
     size_t nameoffset;          // offset of module name from start of ModuleInfo
     size_t namelen;             // length of module name in characters
 
-    int doDocComment;          // enable generating doc comments for this module
-    int doHdrGen;              // enable generating header file for this module
+    bool doDocComment;          // enable generating doc comments for this module
+    bool doHdrGen;              // enable generating header file for this module
 
-    Module(char *arg, Identifier *ident, int doDocComment, int doHdrGen);
+    Module(const char *arg, Identifier *ident, int doDocComment, int doHdrGen);
     ~Module();
 
     static Module *load(Loc loc, Identifiers *packages, Identifier *ident);
@@ -199,12 +199,13 @@ public:
 #endif
     void genmoduleinfo();
 
+    Module *isModule() { return this; }
+
 #if IN_LLVM
     // LDC
     llvm::Module* genLLVMModule(llvm::LLVMContext& context);
     void buildTargetFiles(bool singleObj);
     File* buildFilePath(const char* forcename, const char* path, const char* ext);
-    Module *isModule() { return this; }
     llvm::GlobalVariable* moduleInfoSymbol();
 
     bool llvmForceLogging;

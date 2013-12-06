@@ -25,11 +25,6 @@ Identifier::Identifier(const char *string, int value)
     this->len = strlen(string);
 }
 
-hash_t Identifier::hashCode()
-{
-    return String::calcHash(string);
-}
-
 bool Identifier::equals(RootObject *o)
 {
 #if IN_LLVM // ASan

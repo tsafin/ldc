@@ -76,6 +76,7 @@ FuncDeclaration *AggregateDeclaration::hasIdentityOpAssign(Scope *sc)
         unsigned oldspec = global.speculativeGag;   // template opAssign fbody makes it.
         global.speculativeGag = global.gag;
         sc = sc->push();
+        sc->tinst = NULL;
         sc->speculative = true;
 
         for (size_t i = 0; i < 2; i++)
@@ -196,7 +197,11 @@ FuncDeclaration *StructDeclaration::buildOpAssign(Scope *sc)
     if (dtor || postblit)
     {
         if (dtor)
+        {
             stc = mergeFuncAttrs(stc, dtor->storage_class);
+            if (stc & STCsafe)
+                stc = (stc & ~STCsafe) | STCtrusted;
+        }
     }
     else
     {
@@ -241,7 +246,7 @@ FuncDeclaration *StructDeclaration::buildOpAssign(Scope *sc)
         {
             tmp = new VarDeclaration(loc, type, idtmp, new VoidInitializer(loc));
             tmp->noscope = 1;
-            tmp->storage_class |= STCctfe;
+            tmp->storage_class |= STCtemp | STCctfe;
             e = new DeclarationExp(loc, tmp);
             ec = new AssignExp(loc,
                 new VarExp(loc, tmp),
@@ -305,7 +310,7 @@ FuncDeclaration *StructDeclaration::buildOpAssign(Scope *sc)
         Dsymbols *decldefs = new Dsymbols();
         decldefs->push(s);
         TemplateDeclaration *tempdecl =
-            new TemplateDeclaration(assign->loc, fop->ident, tpl, NULL, decldefs, 0);
+            new TemplateDeclaration(assign->loc, fop->ident, tpl, NULL, decldefs);
         s = tempdecl;
     }
 #endif
@@ -419,6 +424,7 @@ FuncDeclaration *AggregateDeclaration::hasIdentityOpEquals(Scope *sc)
             unsigned oldspec = global.speculativeGag;   // template opAssign fbody makes it.
             global.speculativeGag = global.gag;
             sc = sc->push();
+            sc->tinst = NULL;
             sc->speculative = true;
 
             for (size_t j = 0; j < 2; j++)
@@ -483,7 +489,7 @@ FuncDeclaration *StructDeclaration::buildXopEquals(Scope *sc)
         {
             TypeFunction *tfeqptr;
             {
-                Scope sc;
+                Scope scx;
 
                 /* const bool opEquals(ref const S s);
                  */
@@ -491,7 +497,7 @@ FuncDeclaration *StructDeclaration::buildXopEquals(Scope *sc)
                 parameters->push(new Parameter(STCref | STCconst, type, NULL, NULL));
                 tfeqptr = new TypeFunction(parameters, Type::tbool, 0, LINKd);
                 tfeqptr->mod = MODconst;
-                tfeqptr = (TypeFunction *)tfeqptr->semantic(Loc(), &sc);
+                tfeqptr = (TypeFunction *)tfeqptr->semantic(Loc(), &scx);
             }
             fd = fd->overloadExactMatch(tfeqptr);
             if (fd)
@@ -569,7 +575,7 @@ FuncDeclaration *StructDeclaration::buildXopCmp(Scope *sc)
         {
             TypeFunction *tfcmpptr;
             {
-                Scope sc;
+                Scope scx;
 
                 /* const int opCmp(ref const S s);
                  */
@@ -577,7 +583,7 @@ FuncDeclaration *StructDeclaration::buildXopCmp(Scope *sc)
                 parameters->push(new Parameter(STCref | STCconst, type, NULL, NULL));
                 tfcmpptr = new TypeFunction(parameters, Type::tint32, 0, LINKd);
                 tfcmpptr->mod = MODconst;
-                tfcmpptr = (TypeFunction *)tfcmpptr->semantic(Loc(), &sc);
+                tfcmpptr = (TypeFunction *)tfcmpptr->semantic(Loc(), &scx);
             }
             fd = fd->overloadExactMatch(tfcmpptr);
             if (fd)
@@ -758,7 +764,6 @@ FuncDeclaration *StructDeclaration::buildCpCtor(Scope *sc)
  * and the ordering changes (runs forward instead of backwards).
  */
 
-#if DMDV2
 FuncDeclaration *StructDeclaration::buildPostBlit(Scope *sc)
 {
     //printf("StructDeclaration::buildPostBlit() %s\n", toChars());
@@ -864,8 +869,6 @@ FuncDeclaration *StructDeclaration::buildPostBlit(Scope *sc)
     }
 }
 
-#endif
-
 /*****************************************
  * Create inclusive destructor for struct/class by aggregating
  * all the destructors in dtors[] with the destructors for
@@ -882,7 +885,6 @@ FuncDeclaration *AggregateDeclaration::buildDtor(Scope *sc)
     Loc loc = Loc();    // internal code should have no loc to prevent coverage
 
     Expression *e = NULL;
-#if DMDV2
     for (size_t i = 0; i < fields.dim; i++)
     {
         Dsymbol *s = fields[i];
@@ -946,7 +948,6 @@ FuncDeclaration *AggregateDeclaration::buildDtor(Scope *sc)
         members->push(dd);
         dd->semantic(sc);
     }
-#endif
 
     switch (dtors.dim)
     {

@@ -71,8 +71,9 @@ public:
 
     Dsymbol *onemember;         // if !=NULL then one member of this template
 
-    int literal;                // this template declaration is a literal
-    int ismixin;                // template declaration is only to be used as a mixin
+    bool literal;               // this template declaration is a literal
+    bool ismixin;               // template declaration is only to be used as a mixin
+    bool isstatic;              // this is static template declaration
     PROT protection;
 
     struct Previous
@@ -83,7 +84,7 @@ public:
     Previous *previous;         // threaded list of previous instantiation attempts on stack
 
     TemplateDeclaration(Loc loc, Identifier *id, TemplateParameters *parameters,
-        Expression *constraint, Dsymbols *decldefs, int ismixin);
+        Expression *constraint, Dsymbols *decldefs, bool ismixin = false, bool literal = false);
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);
     bool overloadInsert(Dsymbol *s);
@@ -145,9 +146,7 @@ public:
     virtual TemplateTypeParameter  *isTemplateTypeParameter();
     virtual TemplateValueParameter *isTemplateValueParameter();
     virtual TemplateAliasParameter *isTemplateAliasParameter();
-#if DMDV2
     virtual TemplateThisParameter *isTemplateThisParameter();
-#endif
     virtual TemplateTupleParameter *isTemplateTupleParameter();
 
     virtual TemplateParameter *syntaxCopy() = 0;
@@ -198,7 +197,6 @@ public:
     void *dummyArg();
 };
 
-#if DMDV2
 class TemplateThisParameter : public TemplateTypeParameter
 {
 public:
@@ -212,7 +210,6 @@ public:
     TemplateParameter *syntaxCopy();
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 };
-#endif
 
 class TemplateValueParameter : public TemplateParameter
 {
@@ -324,12 +321,8 @@ public:
     hash_t hash;                        // cached result of hashCode()
     Expressions *fargs;                 // for function template, these are the function arguments
     Module *instantiatingModule;        // the top module that instantiated this instance
-#ifdef IN_GCC
-    /* On some targets, it is necessary to know whether a symbol
-       will be emitted in the output or not before the symbol
-       is used.  This can be different from getModule(). */
-    Module * objFileModule;
-#endif
+
+    TemplateInstances* deferred;
 
     TemplateInstance(Loc loc, Identifier *temp_id);
     TemplateInstance(Loc loc, TemplateDeclaration *tempdecl, Objects *tiargs);
@@ -363,7 +356,7 @@ public:
     bool semanticTiargs(Scope *sc);
     bool findBestMatch(Scope *sc, Expressions *fargs);
     bool needsTypeInference(Scope *sc, int flag = 0);
-    bool hasNestedArgs(Objects *tiargs);
+    bool hasNestedArgs(Objects *tiargs, bool isstatic);
     void declareParameters(Scope *sc);
     Identifier *genIdent(Objects *args);
     void expandMembers(Scope *sc);

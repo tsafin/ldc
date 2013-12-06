@@ -67,7 +67,12 @@ char *mangle(Declaration *sthis, bool isv)
         }
         else
             buf.prependstring("0");
-        s = s->parent;
+
+        TemplateInstance *ti = s->isTemplateInstance();
+        if (ti && !ti->isTemplateMixin())
+            s = ti->tempdecl->parent;
+        else
+            s = s->parent;
     } while (s);
 
 //    buf.prependstring("_D");
@@ -118,23 +123,9 @@ L1:
 }
 
 const char *Declaration::mangle(bool isv)
-#if __DMC__
-    __out(result)
-    {
-        int len = strlen(result);
+{
+        char *p;
 
-        assert(len > 0);
-        //printf("mangle: '%s' => '%s'\n", toChars(), result);
-        for (int i = 0; i < len; i++)
-        {
-            assert(result[i] == '_' ||
-                   result[i] == '@' ||
-                   isalnum(result[i]) || result[i] & 0x80);
-        }
-    }
-    __body
-#endif
-    {
         //printf("Declaration::mangle(this = %p, '%s', parent = '%s', linkage = %d)\n", this, toChars(), parent ? parent->toChars() : "null", linkage);
         if (!parent || parent->isModule() || linkage == LINKcpp) // if at global scope
         {
@@ -150,34 +141,52 @@ const char *Declaration::mangle(bool isv)
                 case LINKc:
                 case LINKwindows:
                 case LINKpascal:
-                    return ident->toChars();
+                    p = ident->toChars();
+                    goto Lret;
 
                 case LINKcpp:
 #if CPP_MANGLE
-                    return cpp_mangle(this);
+                    p = cpp_mangle(this);
 #else
                     // Windows C++ mangling is done by C++ back end
-                    return ident->toChars();
+                    p = ident->toChars();
 #endif
+                    goto Lret;
 
                 case LINKdefault:
                     error("forward declaration");
-                    return ident->toChars();
+                    p = ident->toChars();
+                    goto Lret;
 
                 default:
                     fprintf(stderr, "'%s', linkage = %d\n", toChars(), linkage);
                     assert(0);
             }
         }
-        char *p = ::mangle(this, isv);
+        {
+        p = ::mangle(this, isv);
         OutBuffer buf;
         buf.writestring("_D");
         buf.writestring(p);
         p = buf.toChars();
         buf.data = NULL;
+        }
         //printf("Declaration::mangle(this = %p, '%s', parent = '%s', linkage = %d) = %s\n", this, toChars(), parent ? parent->toChars() : "null", linkage, p);
+
+Lret:
+#ifdef DEBUG
+        size_t len = strlen(p);
+        assert(len > 0);
+        //printf("mangle: '%s' => '%s'\n", toChars(), p);
+        for (size_t i = 0; i < len; i++)
+        {
+            assert(p[i] == '_' ||
+                   p[i] == '@' ||
+                   isalnum(p[i]) || p[i] & 0x80);
+        }
+#endif
         return p;
-    }
+}
 
 /******************************************************************************
  * Normally FuncDeclaration and FuncAliasDeclaration have overloads.
@@ -222,14 +231,7 @@ const char *FuncAliasDeclaration::mangle(bool isv)
  * Returns exact mangled name of function.
  */
 const char *FuncDeclaration::mangleExact(bool isv)
-#if __DMC__
-    __out(result)
-    {
-        assert(strlen(result) > 0);
-    }
-    __body
-#endif
-    {
+{
         assert(!isFuncAliasDeclaration());
 
         if (mangleOverride)
@@ -243,22 +245,15 @@ const char *FuncDeclaration::mangleExact(bool isv)
 
         assert(this);
         return Declaration::mangle(isv);
-    }
+}
 
 const char *VarDeclaration::mangle(bool isv)
-#if __DMC__
-    __out(result)
-    {
-        assert(strlen(result) > 0);
-    }
-    __body
-#endif
-    {
+{
         if (mangleOverride)
             return mangleOverride;
 
         return Declaration::mangle();
-    }
+}
 
 const char *TypedefDeclaration::mangle(bool isv)
 {
@@ -269,7 +264,6 @@ const char *TypedefDeclaration::mangle(bool isv)
 
 const char *AggregateDeclaration::mangle(bool isv)
 {
-#if 1
     //printf("AggregateDeclaration::mangle() '%s'\n", toChars());
     if (Dsymbol *p = toParent2())
     {   if (FuncDeclaration *fd = p->isFuncDeclaration())
@@ -279,7 +273,7 @@ const char *AggregateDeclaration::mangle(bool isv)
             return id;
         }
     }
-#endif
+
     return Dsymbol::mangle(isv);
 }
 
@@ -341,7 +335,7 @@ const char *TemplateInstance::mangle(bool isv)
         error("is not defined");
     else
     {
-        Dsymbol *par = enclosing || isTemplateMixin() ? parent : tempdecl->parent;
+        Dsymbol *par = isTemplateMixin() ? parent : tempdecl->parent;
         if (par)
         {
             const char *p = par->mangle(isv);

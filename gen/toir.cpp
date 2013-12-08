@@ -520,6 +520,7 @@ DValue* AssignExp::toElem(IRState* p)
 
         if (se->lwr == NULL && ta->ty == Tsarray &&
             e2->op == TOKarrayliteral &&
+            op == TOKconstruct &&   // DMD Bugzilla 11238: avoid aliasing issue
             t2->nextOf()->mutableOf()->implicitConvTo(ta->nextOf()))
         {
             ArrayLiteralExp * const ale = static_cast<ArrayLiteralExp *>(e2);
@@ -1140,13 +1141,9 @@ DValue* CastExp::toElem(IRState* p)
     // get the value to cast
     DValue* u = e1->toElem(p);
 
-    // a constructor expression is casted to void in order to mark
-    // the value as unused. See expression.d, method AssignExp::semantic(),
-    // around line 11681
-    if (to == Type::tvoid && e1->op == TOKconstruct)
-    {
-        return new DNullValue(Type::tvoid, 0);
-    }
+    // handle cast to void (usually created by frontend to avoid "has no effect" error)
+    if (to == Type::tvoid)
+        return new DImValue(Type::tvoid, llvm::UndefValue::get(voidToI8(DtoType(Type::tvoid))));
 
     // cast it to the 'to' type, if necessary
     DValue* v = u;
@@ -2294,7 +2291,7 @@ DValue* AssertExp::toElem(IRState* p)
 
     // call assert runtime functions
     p->scope() = IRScope(assertbb,endbb);
-    DtoAssert(p->func()->decl->getModule(), loc, msg ? msg->toElem(p) : NULL);
+    DtoAssert(p->func()->decl->getModule(), loc, msg ? msg->toElemDtor(p) : NULL);
 
     // rewrite the scope
     p->scope() = IRScope(endbb,oldend);
@@ -3184,9 +3181,7 @@ DValue* ClassReferenceExp::toElem(IRState* p)
         toChars(), type->toChars());
     LOG_SCOPE;
 
-    error("ClassReferenceExp::toElem is not yet implemented");
-    fatal();
-    return 0;
+    return new DImValue(type, toConstElem(p));
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -3261,21 +3256,23 @@ llvm::Constant* ClassReferenceExp::toConstElem(IRState *p)
 
     llvm::Constant* result = value->globalVar;
 
-    assert(type->ty == Tclass);
-    ClassDeclaration* targetClass = static_cast<TypeClass*>(type)->sym;
-    if (InterfaceDeclaration* it = targetClass->isInterfaceDeclaration()) {
-        assert(it->isBaseOf(origClass, NULL));
+    if (type->ty == Tclass) {
+        ClassDeclaration* targetClass = static_cast<TypeClass*>(type)->sym;
+        if (InterfaceDeclaration* it = targetClass->isInterfaceDeclaration()) {
+            assert(it->isBaseOf(origClass, NULL));
 
-        IrTypeClass* typeclass = origClass->type->irtype->isClass();
+            IrTypeClass* typeclass = origClass->type->irtype->isClass();
 
-        // find interface impl
-        size_t i_index = typeclass->getInterfaceIndex(it);
-        assert(i_index != ~0UL);
+            // find interface impl
+            size_t i_index = typeclass->getInterfaceIndex(it);
+            assert(i_index != ~0UL);
 
-        // offset pointer
-        result = DtoGEPi(result, 0, i_index);
+            // offset pointer
+            result = DtoGEPi(result, 0, i_index);
+        }
     }
 
+    assert(type->ty == Tclass || type->ty == Tenum);
     return DtoBitCast(result, DtoType(type));
 }
 
